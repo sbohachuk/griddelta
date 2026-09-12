@@ -43,20 +43,32 @@ function parseInput(data: unknown): { startDate: string; endDate: string } {
   return { startDate: rec.startDate, endDate: rec.endDate };
 }
 
+async function sleep(ms: number) {
+  await new Promise((r) => setTimeout(r, ms));
+}
+
+/** Fetch with longer timeout + 3 retries (EEX rate-limits long ranges). */
 async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 18_000);
-  try {
-    const res = await fetch(url, {
-      ...init,
-      signal: ctrl.signal,
-      headers: { ...EEX_HEADERS, ...(init?.headers as Record<string, string> | undefined) },
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
-  } finally {
-    clearTimeout(t);
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 28_000);
+    try {
+      const res = await fetch(url, {
+        ...init,
+        signal: ctrl.signal,
+        headers: { ...EEX_HEADERS, ...(init?.headers as Record<string, string> | undefined) },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (e) {
+      lastErr = e;
+      if (attempt < 2) await sleep(600 * (attempt + 1) * (attempt + 1));
+    } finally {
+      clearTimeout(t);
+    }
   }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 
 function headerIndex(header: unknown, name: string): number {
@@ -400,22 +412,46 @@ export const loadMarket = createServerFn({ method: "POST" })
     const dates = enumerateDates(startDate, endDate);
     const warnings: string[] = [];
 
+    // Поетапно: спочатку spot/month, потім day (низька concurrency), потім week —
+    // щоб довгий період не «губив» дні через rate-limit EEX.
     const dayJobs: { zone: Zone; date: string }[] = [];
     for (const zone of ZONES) {
       if (!zone.dayPrefix) continue;
       for (const date of dates) dayJobs.push({ zone, date });
     }
 
-    const [{ spot, uaUah }, monthSeries, weekSeries, weekendSeries, daySeries] = await Promise.all([
-      fetchSpot(startDate, endDate),
-      Promise.all(ZONES.map((z) => fetchMonthContract(z, startDate, endDate))),
-      Promise.all(ZONES.map((z) => fetchWeekContract(z, startDate, endDate))),
-      Promise.all(ZONES.map((z) => fetchWeekendContract(z, startDate, endDate))),
-      mapPool(dayJobs, 8, async (job) => ({
-        key: `${job.zone.id}:${job.date}`,
-        points: await fetchDayContract(job.zone, job.date),
-      })),
-    ]);
+    const { spot, uaUah } = await fetchSpot(startDate, endDate);
+    const monthSeries = await mapPool(ZONES, 3, (z) => fetchMonthContract(z, startDate, endDate));
+
+    // concurrency 3 — стабільніше на повному місяці; порожні відповіді перезапитуємо
+    let daySeries = await mapPool(dayJobs, 3, async (job) => ({
+      key: `${job.zone.id}:${job.date}`,
+      points: await fetchDayContract(job.zone, job.date),
+    }));
+    const missingDay = daySeries.filter((s) => s.points.length === 0);
+    if (missingDay.length > 0 && missingDay.length < dayJobs.length) {
+      await sleep(800);
+      const retried = await mapPool(missingDay, 2, async (s) => {
+        const [zoneId, date] = s.key.split(":");
+        const zone = ZONES.find((z) => z.id === zoneId)!;
+        return { key: s.key, points: await fetchDayContract(zone, date) };
+      });
+      const byKey = new Map(daySeries.map((s) => [s.key, s]));
+      for (const r of retried) byKey.set(r.key, r);
+      daySeries = [...byKey.values()];
+    }
+
+    const weekSeries = await mapPool(ZONES, 3, (z) => fetchWeekContract(z, startDate, endDate));
+    const weekendSeries = await mapPool(ZONES, 3, (z) =>
+      fetchWeekendContract(z, startDate, endDate),
+    );
+
+    const emptyDays = daySeries.filter((s) => s.points.length === 0).length;
+    if (emptyDays > 0) {
+      warnings.push(
+        `Day-ф'ючерси: ${emptyDays}/${dayJobs.length} запитів без settlement (EEX timeout/rate-limit). Зменшення concurrency + retry уже застосовано; forward-fill заповнить прогалини.`,
+      );
+    }
 
     const fxDate = endDate <= isoToday() ? endDate : startDate;
     const eurUah = await fetchEurUah(fxDate);
@@ -528,7 +564,6 @@ export const loadMarket = createServerFn({ method: "POST" })
       byWeek.get(k)!.push(d);
     }
     for (const zone of ZONES) {
-      if (!zone.dayPrefix) continue;
       for (const [, weekDates] of byWeek) {
         const dayVals: number[] = [];
         const weVals: number[] = [];
@@ -561,6 +596,31 @@ export const loadMarket = createServerFn({ method: "POST" })
             cell.weekendDeltaEur = dWe.eur;
             cell.weekendDeltaPct = dWe.pct;
           }
+        }
+      }
+    }
+
+
+    // Forward-fill Week / Weekend по зоні (усі дати періоду без пропусків)
+    for (const zone of ZONES) {
+      let lastW: number | null = null;
+      let lastWe: number | null = null;
+      for (const date of dates) {
+        const cell = rows[date]?.[zone.id];
+        if (!cell) continue;
+        if (cell.weekFutures !== null) lastW = cell.weekFutures;
+        else if (lastW !== null) {
+          cell.weekFutures = lastW;
+          const dW = delta(lastW, cell.spot);
+          cell.weekDeltaEur = dW.eur;
+          cell.weekDeltaPct = dW.pct;
+        }
+        if (cell.weekendFutures !== null) lastWe = cell.weekendFutures;
+        else if (lastWe !== null) {
+          cell.weekendFutures = lastWe;
+          const dWe = delta(lastWe, cell.spot);
+          cell.weekendDeltaEur = dWe.eur;
+          cell.weekendDeltaPct = dWe.pct;
         }
       }
     }
