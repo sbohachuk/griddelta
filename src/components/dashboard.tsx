@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
   Download,
@@ -9,8 +8,8 @@ import {
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
-import { loadMarket } from "@/lib/market.functions";
 import type { MarketReport } from "@/lib/market-types";
+import { useMarketReport } from "@/lib/market-queries";
 import { ZONES, type ZoneId } from "@/lib/zones";
 import { addDaysIso, cn, formatPct, formatPrice, isoToday, monthBounds } from "@/lib/utils";
 import { downloadReportXls } from "@/lib/export-xls";
@@ -61,13 +60,21 @@ export function Dashboard() {
   /** Розріз звіту: дні (подобово) | декади (1–10 / 11–20 / 21–кінець) */
   const [viewMode, setViewMode] = useState<"days" | "decades">("days");
 
-  const query = useQuery({
-    queryKey: ["market", applied.start, applied.end],
-    queryFn: () => loadMarket({ data: { startDate: applied.start, endDate: applied.end } }),
-    staleTime: 5 * 60_000,
-  });
-
-  const report = query.data;
+  const {
+    report,
+    isLoading: marketLoading,
+    isFetching: marketFetching,
+    isError: marketError,
+    error: marketErr,
+    loadingFutures,
+  } = useMarketReport(applied.start, applied.end);
+  const query = {
+    isLoading: marketLoading,
+    isFetching: marketFetching,
+    isError: marketError,
+    error: marketErr,
+    data: report,
+  };
   const stats = report ? summarize(report, zone) : null;
   const zoneMeta = ZONES.find((z) => z.id === zone)!;
 
@@ -151,6 +158,12 @@ export function Dashboard() {
               Excel
             </Button>
           </form>
+
+          {loadingFutures ? (
+            <p className="text-xs text-muted-foreground animate-pulse">
+              Spot уже на екрані · асинхронно тягнемо Day / Week / Month…
+            </p>
+          ) : null}
 
           {/* Розріз: Дні / Декади */}
           <div className="flex flex-wrap items-center gap-2">

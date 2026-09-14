@@ -68,4 +68,6 @@ export type MarketReport = {
 export type LoadMarketInput = {
   startDate: string;
   endDate: string;
+  /** spot = швидкий шар (РДН); full = повний звіт */
+  phase?: "spot" | "full";
 };

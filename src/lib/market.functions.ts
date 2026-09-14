@@ -64,9 +64,9 @@ function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
 /** 2 attempts, short backoff; first timeout 12s, second 22s. */
 async function fetchJsonUncached(url: string, init?: RequestInit): Promise<unknown> {
   let lastErr: unknown;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     const ctrl = new AbortController();
-    const ms = attempt === 0 ? 12_000 : 22_000;
+    const ms = attempt === 0 ? 25_000 : 45_000;
     const t = setTimeout(() => ctrl.abort(), ms);
     try {
       const res = await fetch(url, {
@@ -78,7 +78,7 @@ async function fetchJsonUncached(url: string, init?: RequestInit): Promise<unkno
       return await res.json();
     } catch (e) {
       lastErr = e;
-      if (attempt === 0) await sleep(200);
+      if (attempt < 2) await sleep(attempt === 0 ? 500 : 1500);
     } finally {
       clearTimeout(t);
     }
@@ -160,7 +160,7 @@ async function fetchDayContract(zone: Zone, deliveryDate: string): Promise<EexPo
   const maturity = monthMaturity(deliveryDate);
   // Ширше вікно історії, щоб ранні дні місяця не губилися
   const monthStart = deliveryDate.slice(0, 8) + "01";
-  const histStart = addDaysIso(monthStart, -14);
+  const histStart = addDaysIso(monthStart, -28);
   // Тягнемо повну історію до deliveryDate; архів береться через lastPointBefore (без дня поставки)
   const params = new URLSearchParams({
     shortCode,
@@ -269,7 +269,7 @@ async function fetchMonthContract(
     ...new Set(enumerateDates(startDate, endDate).map((d) => monthMaturity(d))),
   ];
   // Ширша історія settlement — інакше public API часто повертає порожньо
-  const histStart = addDaysIso(startDate, -45);
+  const histStart = addDaysIso(startDate, -120);
   const histEnd = endDate;
   const chunks: EexPoint[][] = [];
   for (const maturity of mats) {
@@ -447,7 +447,7 @@ export const loadMarket = createServerFn({ method: "POST" })
       for (const date of dates) dayJobs.push({ zone, date });
     }
 
-    const dayPromise = mapPool(dayJobs, 8, async (job) => ({
+    const dayPromise = mapPool(dayJobs, 4, async (job) => ({
       key: `${job.zone.id}:${job.date}`,
       points: await fetchDayContract(job.zone, job.date),
     }));
@@ -463,8 +463,8 @@ export const loadMarket = createServerFn({ method: "POST" })
       return date <= today;
     });
     if (missingDay.length > 0 && missingDay.length <= dayJobs.length * 0.7) {
-      await sleep(150);
-      const retried = await mapPool(missingDay, 6, async (s) => {
+      await sleep(1000);
+      const retried = await mapPool(missingDay, 3, async (s) => {
         const [zoneId, date] = s.key.split(":");
         const zone = ZONES.find((z) => z.id === zoneId)!;
         return { key: s.key, points: await fetchDayContract(zone, date) };
@@ -476,7 +476,7 @@ export const loadMarket = createServerFn({ method: "POST" })
 
     const fxDate = endDate <= today ? endDate : startDate;
     const [monthSeries, weekSeries, weekendSeries, eurUah] = await Promise.all([
-      mapPool(ZONES, 6, (z) => fetchMonthContract(z, startDate, endDate)),
+      mapPool(ZONES, 2, (z) => fetchMonthContract(z, startDate, endDate)),
       mapPool(ZONES, 6, (z) => fetchWeekContract(z, startDate, endDate)),
       mapPool(ZONES, 6, (z) => fetchWeekendContract(z, startDate, endDate)),
       fetchEurUah(fxDate),
