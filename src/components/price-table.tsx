@@ -1,6 +1,6 @@
 import { ZONES, type ZoneId } from "@/lib/zones";
 import type { CellQuote, MarketReport } from "@/lib/market-types";
-import { cn, formatPct, formatPrice } from "@/lib/utils";
+import { cn, formatPct, formatPrice, formatDateWithWeek } from "@/lib/utils";
 
 type Metric =
   | "spot"
@@ -84,7 +84,7 @@ export function PriceTable({
                 )}
               >
                 <td className="sticky left-0 z-10 bg-inherit px-3 py-2 font-medium tabular-nums text-muted-foreground">
-                  {date.slice(5)}
+                  {formatDateWithWeek(date)}
                 </td>
                 {zones.map((z) => {
                   const value = read(report.rows[date]?.[z.id], metric);
@@ -141,7 +141,7 @@ export function EuUaTable({ report }: { report: MarketReport }) {
                 className={cn("border-t border-border", i % 2 === 0 ? "bg-card" : "bg-muted/40")}
               >
                 <td className="px-3 py-2 font-medium tabular-nums text-muted-foreground">
-                  {r.date.slice(5)}
+                  {formatDateWithWeek(r.date)}
                 </td>
                 <td className="px-2 py-2 text-right tabular-nums">{formatPrice(r.euAvg)}</td>
                 <td className="px-2 py-2 text-right tabular-nums">{formatPrice(r.uaRdnEur)}</td>

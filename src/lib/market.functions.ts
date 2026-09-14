@@ -47,12 +47,27 @@ async function sleep(ms: number) {
   await new Promise((r) => setTimeout(r, ms));
 }
 
-/** Fetch with longer timeout + 3 retries (EEX rate-limits long ranges). */
-async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
+/** In-request cache: identical URLs share one in-flight promise (big win on overlaps). */
+const fetchCache = new Map<string, Promise<unknown>>();
+
+function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
+  const cacheKey = init?.method && init.method !== "GET" ? null : url;
+  if (cacheKey && fetchCache.has(cacheKey)) return fetchCache.get(cacheKey)!;
+  const p = fetchJsonUncached(url, init);
+  if (cacheKey) {
+    fetchCache.set(cacheKey, p);
+    p.catch(() => fetchCache.delete(cacheKey));
+  }
+  return p;
+}
+
+/** 2 attempts, short backoff; first timeout 12s, second 22s. */
+async function fetchJsonUncached(url: string, init?: RequestInit): Promise<unknown> {
   let lastErr: unknown;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 2; attempt++) {
     const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 28_000);
+    const ms = attempt === 0 ? 12_000 : 22_000;
+    const t = setTimeout(() => ctrl.abort(), ms);
     try {
       const res = await fetch(url, {
         ...init,
@@ -63,7 +78,7 @@ async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
       return await res.json();
     } catch (e) {
       lastErr = e;
-      if (attempt < 2) await sleep(600 * (attempt + 1) * (attempt + 1));
+      if (attempt === 0) await sleep(200);
     } finally {
       clearTimeout(t);
     }
@@ -253,8 +268,12 @@ async function fetchMonthContract(
   const mats = [
     ...new Set(enumerateDates(startDate, endDate).map((d) => monthMaturity(d))),
   ];
-  const chunks = await Promise.all(
-    mats.map(async (maturity) => {
+  // Ширша історія settlement — інакше public API часто повертає порожньо
+  const histStart = addDaysIso(startDate, -45);
+  const histEnd = endDate;
+  const chunks: EexPoint[][] = [];
+  for (const maturity of mats) {
+    const tryMode = async (isRolling: string) => {
       const params = new URLSearchParams({
         shortCode: zone.monthCode,
         commodity: "POWER",
@@ -262,10 +281,10 @@ async function fetchMonthContract(
         area: zone.eexArea,
         product: "Base",
         maturity,
-        startDate,
-        endDate,
+        startDate: histStart,
+        endDate: histEnd,
         maturityType: "Month",
-        isRolling: "true",
+        isRolling,
       });
       try {
         const raw = await fetchJson(`${EEX_TABLE}?${params.toString()}`);
@@ -273,8 +292,12 @@ async function fetchMonthContract(
       } catch {
         return [] as EexPoint[];
       }
-    }),
-  );
+    };
+    // Обидва режими паралельно — беремо перший непорожній
+    const [a, b] = await Promise.all([tryMode("false"), tryMode("true")]);
+    if (a.length) chunks.push(a);
+    else if (b.length) chunks.push(b);
+  }
   const byDate = new Map<string, EexPoint>();
   for (const pts of chunks) {
     for (const p of pts) byDate.set(p.tradeDate, p);
@@ -412,26 +435,36 @@ export const loadMarket = createServerFn({ method: "POST" })
     const dates = enumerateDates(startDate, endDate);
     const warnings: string[] = [];
 
-    // Поетапно: спочатку spot/month, потім day (низька concurrency), потім week —
-    // щоб довгий період не «губив» дні через rate-limit EEX.
+    // Швидкий пайплайн:
+    // 1) Spot + Day паралельно (незалежні)
+    // 2) Month + Week + Weekend + FX паралельно
+    // Кеш URL усередині запиту; concurrency 8 на day.
+    fetchCache.clear();
+    const today = isoToday();
     const dayJobs: { zone: Zone; date: string }[] = [];
     for (const zone of ZONES) {
       if (!zone.dayPrefix) continue;
       for (const date of dates) dayJobs.push({ zone, date });
     }
 
-    const { spot, uaUah } = await fetchSpot(startDate, endDate);
-    const monthSeries = await mapPool(ZONES, 3, (z) => fetchMonthContract(z, startDate, endDate));
-
-    // concurrency 3 — стабільніше на повному місяці; порожні відповіді перезапитуємо
-    let daySeries = await mapPool(dayJobs, 3, async (job) => ({
+    const dayPromise = mapPool(dayJobs, 8, async (job) => ({
       key: `${job.zone.id}:${job.date}`,
       points: await fetchDayContract(job.zone, job.date),
     }));
-    const missingDay = daySeries.filter((s) => s.points.length === 0);
-    if (missingDay.length > 0 && missingDay.length < dayJobs.length) {
-      await sleep(800);
-      const retried = await mapPool(missingDay, 2, async (s) => {
+    const spotPromise = fetchSpot(startDate, endDate);
+
+    const [{ spot, uaUah }, daySeries0] = await Promise.all([spotPromise, dayPromise]);
+    let daySeries = daySeries0;
+
+    // Retry лише минулі/сьогоднішні порожні (майбутні часто ще без котирувань)
+    const missingDay = daySeries.filter((s) => {
+      if (s.points.length > 0) return false;
+      const date = s.key.split(":")[1]!;
+      return date <= today;
+    });
+    if (missingDay.length > 0 && missingDay.length <= dayJobs.length * 0.7) {
+      await sleep(150);
+      const retried = await mapPool(missingDay, 6, async (s) => {
         const [zoneId, date] = s.key.split(":");
         const zone = ZONES.find((z) => z.id === zoneId)!;
         return { key: s.key, points: await fetchDayContract(zone, date) };
@@ -441,20 +474,20 @@ export const loadMarket = createServerFn({ method: "POST" })
       daySeries = [...byKey.values()];
     }
 
-    const weekSeries = await mapPool(ZONES, 3, (z) => fetchWeekContract(z, startDate, endDate));
-    const weekendSeries = await mapPool(ZONES, 3, (z) =>
-      fetchWeekendContract(z, startDate, endDate),
-    );
+    const fxDate = endDate <= today ? endDate : startDate;
+    const [monthSeries, weekSeries, weekendSeries, eurUah] = await Promise.all([
+      mapPool(ZONES, 6, (z) => fetchMonthContract(z, startDate, endDate)),
+      mapPool(ZONES, 6, (z) => fetchWeekContract(z, startDate, endDate)),
+      mapPool(ZONES, 6, (z) => fetchWeekendContract(z, startDate, endDate)),
+      fetchEurUah(fxDate),
+    ]);
 
     const emptyDays = daySeries.filter((s) => s.points.length === 0).length;
     if (emptyDays > 0) {
       warnings.push(
-        `Day-ф'ючерси: ${emptyDays}/${dayJobs.length} запитів без settlement (EEX timeout/rate-limit). Зменшення concurrency + retry уже застосовано; forward-fill заповнить прогалини.`,
+        `Day: ${emptyDays}/${dayJobs.length} без settlement (forward-fill заповнить прогалини).`,
       );
     }
-
-    const fxDate = endDate <= isoToday() ? endDate : startDate;
-    const eurUah = await fetchEurUah(fxDate);
 
     const monthByZone: Record<ZoneId, EexPoint[]> = {} as Record<ZoneId, EexPoint[]>;
     const weekByZone: Record<ZoneId, EexPoint[]> = {} as Record<ZoneId, EexPoint[]>;
@@ -464,7 +497,9 @@ export const loadMarket = createServerFn({ method: "POST" })
       weekByZone[z.id] = weekSeries[i];
       weekendByZone[z.id] = weekendSeries[i];
       if (monthSeries[i].length === 0) {
-        warnings.push(`Місячний ф'ючерс ${z.id} (${z.monthCode}) не повернув settlement.`);
+        warnings.push(
+          `Month ${z.id} (${z.monthCode}): немає settlement у public API — у таблиці буде «—» (спробуйте вужчий період або пізніше).`,
+        );
       }
     });
 
@@ -488,7 +523,12 @@ export const loadMarket = createServerFn({ method: "POST" })
         const weekendPt =
           pointOnDate(weekendByZone[zone.id] ?? [], date) ??
           lastPoint(weekendByZone[zone.id] ?? []);
-        const monthPt = pointOnDate(monthByZone[zone.id] ?? [], date);
+        // Month: settlement на дату або останній відомий до/на дату
+        const monthPts = monthByZone[zone.id] ?? [];
+        const monthPt =
+          pointOnDate(monthPts, date) ??
+          lastPointBefore(monthPts, addDaysIso(date, 1)) ??
+          lastPoint(monthPts);
 
         const dayPx = dayPt?.settlPx ?? null;
         const weekPx = weekPt?.settlPx ?? null;
@@ -541,6 +581,26 @@ export const loadMarket = createServerFn({ method: "POST" })
           const dDay = delta(last, cell.spot);
           cell.dayDeltaEur = dDay.eur;
           cell.dayDeltaPct = dDay.pct;
+        }
+      }
+    }
+
+    // —— Forward-fill Month по зоні ——
+    for (const zone of ZONES) {
+      let last: number | null = null;
+      let lastTd: string | null = null;
+      for (const date of dates) {
+        const cell = rows[date]?.[zone.id];
+        if (!cell) continue;
+        if (cell.monthFutures !== null) {
+          last = cell.monthFutures;
+          lastTd = cell.monthTradeDate;
+        } else if (last !== null) {
+          cell.monthFutures = last;
+          cell.monthTradeDate = lastTd;
+          const dM = delta(last, cell.spot);
+          cell.monthDeltaEur = dM.eur;
+          cell.monthDeltaPct = dM.pct;
         }
       }
     }

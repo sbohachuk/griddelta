@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import { loadMarket } from "@/lib/market.functions";
 import type { MarketReport } from "@/lib/market-types";
 import { ZONES, type ZoneId } from "@/lib/zones";
-import { addDaysIso, cn, formatPct, formatPrice, isoToday } from "@/lib/utils";
+import { addDaysIso, cn, formatPct, formatPrice, isoToday, monthBounds } from "@/lib/utils";
 import { downloadReportXls } from "@/lib/export-xls";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,12 +22,12 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DeltaChart } from "@/components/delta-chart";
+import { DeltaChart, OverviewChart } from "@/components/delta-chart";
 import { PriceTable, EuUaTable, DecadeTable } from "@/components/price-table";
 
 function defaultRange() {
-  const today = isoToday();
-  return { start: addDaysIso(today, -6), end: addDaysIso(today, 7) };
+  // За замовчуванням — повний поточний місяць
+  return monthBounds(isoToday());
 }
 
 function summarize(report: MarketReport, zone: ZoneId) {
@@ -301,6 +301,24 @@ export function Dashboard() {
               <DeltaChart report={report} zone={zone} />
             ) : (
               <p className="text-sm text-muted-foreground">Немає даних для графіка.</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Усі зони · Spot + UA</CardTitle>
+            <CardDescription>
+              Подобові spot-ціни по країнах, середня EU та UA РДН (€). Увімкни/вимкни серії кнопками.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {query.isLoading ? (
+              <Skeleton className="h-[300px] w-full rounded-[calc(var(--radius-xl)-8px)]" />
+            ) : report ? (
+              <OverviewChart report={report} />
+            ) : (
+              <p className="text-sm text-muted-foreground">Немає даних.</p>
             )}
           </CardContent>
         </Card>

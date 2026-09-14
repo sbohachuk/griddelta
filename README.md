@@ -1,29 +1,32 @@
 # GridDelta
 
-Подобові EEX Base-ф’ючерси (Day / Week / Weekend / Month) проти day-ahead споту Energy-Charts. Дельти EUR/MWh і %, порівняння EU vs UA (РДН), розріз **Дні / Декади** зі знижками −30/−20/−10% у € та ₴.
+EEX Base futures (Day / Week / Weekend / Month) vs Energy-Charts day-ahead spot.  
+Δ EUR/MWh & %, EU vs UA (RDN), report modes **Days / Decades**, discount −30/−20/−10% in € and ₴.
 
-## Запуск
+## Run (desktop & mobile browser)
 
 ```bash
 npm install
 npm run dev
 ```
 
-Додаток: [http://localhost:8080](http://localhost:8080)
+Open: http://localhost:8080
 
-## Можливості
+Works in mobile browser (responsive layout: stacked cards, horizontal scroll tables, touch-friendly zone chips). For phone testing use your LAN IP from the Vite “Network” line, or deploy (Vercel etc.).
 
-- **Розріз звіту:** Дні | Декади
-- Spot (Energy-Charts) · Day-архів EEX (до поставки) · Week · Weekend · Month
-- Δ day / week / month у € і %
-- EU середня + UA РДН (UAH→EUR через NBU) і дельта %
-- Декади: середні SPOT/DAY/WEEK + знижки 30/20/10% у EUR і UAH
-- Експорт Excel
+## Features
 
-## Зони
+- Default range: full current calendar month
+- Modes: **Дні** | **Декади**
+- Charts: zone (Spot/Day/Week/Month + UA) · overview all countries with on/off toggles
+- Dates labeled with ISO week: `09-14 · W37`
+- Fetch order: Spot → Day → Month → Week/Weekend (retries + forward-fill)
+- Excel export
 
-DE, AT, FR, CZ, HU, SK, RO, PL, BG
+## Zones
 
-## Стек
+DE, AT, FR, CZ, HU, SK, RO, PL, BG (+ UA RDN)
+
+## Stack
 
 TanStack Start · React · Vite · Tailwind · Recharts
