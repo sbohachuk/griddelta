@@ -96,7 +96,7 @@ async function fetchLiveRange(
 
   const { spot, uaUah } = await fetchSpot(startDate, endDate);
 
-  let daySeries = await mapPool(dayJobs, 3, async (job) => ({
+  let daySeries = await mapPool(dayJobs, 6, async (job) => ({
     key: `${job.zone.id}:${job.date}`,
     points: await fetchDayContract(job.zone, job.date),
   }));
@@ -108,8 +108,8 @@ async function fetchLiveRange(
       return date <= today;
     });
     if (!missingDay.length) break;
-    await sleep(pass === 0 ? 1_200 : 2_500);
-    const retried = await mapPool(missingDay, 2, async (s) => {
+    await sleep(pass === 0 ? 600 : 1_500);
+    const retried = await mapPool(missingDay, 4, async (s) => {
       const [zoneId, date] = s.key.split(":");
       const zone = ZONES.find((z) => z.id === zoneId)!;
       return { key: s.key, points: await fetchDayContract(zone, date) };
@@ -123,27 +123,25 @@ async function fetchLiveRange(
 
   const fxDate = endDate <= today ? endDate : startDate;
 
-  await sleep(600);
-  let monthSeries: EexPoint[][] = [];
-  for (let i = 0; i < ZONES.length; i++) {
-    const pts = await fetchMonthContract(ZONES[i], startDate, endDate);
-    monthSeries.push(pts);
-    if (i < ZONES.length - 1) await sleep(350);
-  }
+  const monthSeries: EexPoint[][] = await mapPool(ZONES, 4, (z) =>
+    fetchMonthContract(z, startDate, endDate),
+  );
   const emptyMonthIdx = monthSeries
     .map((pts, i) => (pts.length === 0 ? i : -1))
     .filter((i) => i >= 0);
   if (emptyMonthIdx.length) {
-    await sleep(2_000);
-    for (const i of emptyMonthIdx) {
-      monthSeries[i] = await fetchMonthContract(ZONES[i], startDate, endDate);
-      await sleep(500);
-    }
+    await sleep(1_000);
+    const retriedMonth = await mapPool(emptyMonthIdx, 3, (i) =>
+      fetchMonthContract(ZONES[i], startDate, endDate),
+    );
+    emptyMonthIdx.forEach((i, idx) => {
+      monthSeries[i] = retriedMonth[idx];
+    });
   }
 
   const [weekSeries, weekendSeries, eurUah] = await Promise.all([
-    mapPool(ZONES, 2, (z) => fetchWeekContract(z, startDate, endDate)),
-    mapPool(ZONES, 2, (z) => fetchWeekendContract(z, startDate, endDate)),
+    mapPool(ZONES, 4, (z) => fetchWeekContract(z, startDate, endDate)),
+    mapPool(ZONES, 4, (z) => fetchWeekendContract(z, startDate, endDate)),
     fetchEurUah(fxDate),
   ]);
 
