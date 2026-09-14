@@ -148,6 +148,16 @@ export function DeltaChart({ report, zone }: { report: MarketReport; zone: ZoneI
   const keys = ["spot", "day", "week", "month", "ua"];
   const domain = yDomain(data, keys);
   const unit = unitLabel(currency);
+  const [hidden, setHidden] = useState<Record<string, boolean>>({});
+  const toggleKey = (key: string) =>
+    setHidden((prev) => ({ ...prev, [key]: !prev[key] }));
+  const legendLabels: Record<string, string> = {
+    spot: "Spot",
+    day: "Day",
+    month: "Month",
+    week: "Week+WE",
+    ua: "UA РДН",
+  };
 
   return (
     <div className="space-y-3">
@@ -203,23 +213,30 @@ export function DeltaChart({ report, zone }: { report: MarketReport; zone: ZoneI
             />
             <Legend
               wrapperStyle={{ fontSize: 12, color: "var(--color-muted-foreground)" }}
-              formatter={(value) =>
-                ({
-                  spot: "Spot",
-                  day: "Day",
-                  month: "Month",
-                  week: "Week+WE",
-                  ua: "UA РДН",
-                })[value] ?? value
-              }
+              onClick={(e) => toggleKey(String(e.dataKey))}
+              formatter={(value, entry) => {
+                const key = String((entry as { dataKey?: string })?.dataKey ?? value);
+                const isHidden = hidden[key];
+                return (
+                  <span
+                    style={{
+                      cursor: "pointer",
+                      opacity: isHidden ? 0.4 : 1,
+                      textDecoration: isHidden ? "line-through" : "none",
+                    }}
+                  >
+                    {legendLabels[value] ?? value}
+                  </span>
+                );
+              }}
             />
-            <Line type="monotone" dataKey="spot" stroke={PRODUCT_COLORS.spot} strokeWidth={2} dot={false} connectNulls name="spot" />
+            <Line type="monotone" dataKey="spot" stroke={PRODUCT_COLORS.spot} strokeWidth={2} dot={false} connectNulls name="spot" hide={hidden.spot} />
             {meta.dayPrefix ? (
-              <Line type="monotone" dataKey="day" stroke={PRODUCT_COLORS.day} strokeWidth={2} dot={false} connectNulls name="day" />
+              <Line type="monotone" dataKey="day" stroke={PRODUCT_COLORS.day} strokeWidth={2} dot={false} connectNulls name="day" hide={hidden.day} />
             ) : null}
-            <Line type="monotone" dataKey="week" stroke={PRODUCT_COLORS.week} strokeWidth={1.5} strokeDasharray="4 3" dot={false} connectNulls name="week" />
-            <Line type="monotone" dataKey="month" stroke={PRODUCT_COLORS.month} strokeWidth={1.5} strokeDasharray="2 2" dot={false} connectNulls name="month" />
-            <Line type="monotone" dataKey="ua" stroke={PRODUCT_COLORS.ua} strokeWidth={2} dot={false} connectNulls name="ua" />
+            <Line type="monotone" dataKey="week" stroke={PRODUCT_COLORS.week} strokeWidth={1.5} strokeDasharray="4 3" dot={false} connectNulls name="week" hide={hidden.week} />
+            <Line type="monotone" dataKey="month" stroke={PRODUCT_COLORS.month} strokeWidth={1.5} strokeDasharray="2 2" dot={false} connectNulls name="month" hide={hidden.month} />
+            <Line type="monotone" dataKey="ua" stroke={PRODUCT_COLORS.ua} strokeWidth={2} dot={false} connectNulls name="ua" hide={hidden.ua} />
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -241,6 +258,9 @@ export function OverviewChart({ report }: { report: MarketReport }) {
   const [enabled, setEnabled] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(allIds.map((id) => [id, true])),
   );
+  const [hiddenProducts, setHiddenProducts] = useState<Record<string, boolean>>({});
+  const toggleProduct = (key: string) =>
+    setHiddenProducts((prev) => ({ ...prev, [key]: !prev[key] }));
   const [mode, setMode] = useState<OverviewMode>("products");
   const [currency, setCurrency] = useState<Currency>("EUR");
   const rate = useEurUah(report);
@@ -430,16 +450,33 @@ export function OverviewChart({ report }: { report: MarketReport }) {
             />
             <Legend
               wrapperStyle={{ fontSize: 11, color: "var(--color-muted-foreground)" }}
-              formatter={(value) => {
+              onClick={(e) => {
+                if (mode === "products") toggleProduct(String(e.dataKey));
+              }}
+              formatter={(value, entry) => {
                 if (mode === "products") {
+                  const label =
+                    (
+                      {
+                        spot: "Spot EU",
+                        day: "Day",
+                        week: "Week+WE",
+                        month: "Month",
+                        ua: "UA РДН",
+                      } as Record<string, string>
+                    )[value] ?? value;
+                  const key = String((entry as { dataKey?: string })?.dataKey ?? value);
+                  const isHidden = hiddenProducts[key];
                   return (
-                    {
-                      spot: "Spot EU",
-                      day: "Day",
-                      week: "Week+WE",
-                      month: "Month",
-                      ua: "UA РДН",
-                    }[value] ?? value
+                    <span
+                      style={{
+                        cursor: "pointer",
+                        opacity: isHidden ? 0.4 : 1,
+                        textDecoration: isHidden ? "line-through" : "none",
+                      }}
+                    >
+                      {label}
+                    </span>
                   );
                 }
                 return value;
@@ -462,11 +499,11 @@ export function OverviewChart({ report }: { report: MarketReport }) {
                   ) : null,
                 )
               : [
-                  <Line key="spot" type="monotone" dataKey="spot" stroke={PRODUCT_COLORS.spot} strokeWidth={2.5} strokeDasharray="4 3" dot={false} connectNulls name="spot" />,
-                  <Line key="day" type="monotone" dataKey="day" stroke={PRODUCT_COLORS.day} strokeWidth={2} dot={false} connectNulls name="day" />,
-                  <Line key="week" type="monotone" dataKey="week" stroke={PRODUCT_COLORS.week} strokeWidth={2} strokeDasharray="3 2" dot={false} connectNulls name="week" />,
-                  <Line key="month" type="monotone" dataKey="month" stroke={PRODUCT_COLORS.month} strokeWidth={2} strokeDasharray="2 2" dot={false} connectNulls name="month" />,
-                  <Line key="ua" type="monotone" dataKey="ua" stroke={PRODUCT_COLORS.ua} strokeWidth={2.5} dot={false} connectNulls name="ua" />,
+                  <Line key="spot" type="monotone" dataKey="spot" stroke={PRODUCT_COLORS.spot} strokeWidth={2.5} strokeDasharray="4 3" dot={false} connectNulls name="spot" hide={hiddenProducts.spot} />,
+                  <Line key="day" type="monotone" dataKey="day" stroke={PRODUCT_COLORS.day} strokeWidth={2} dot={false} connectNulls name="day" hide={hiddenProducts.day} />,
+                  <Line key="week" type="monotone" dataKey="week" stroke={PRODUCT_COLORS.week} strokeWidth={2} strokeDasharray="3 2" dot={false} connectNulls name="week" hide={hiddenProducts.week} />,
+                  <Line key="month" type="monotone" dataKey="month" stroke={PRODUCT_COLORS.month} strokeWidth={2} strokeDasharray="2 2" dot={false} connectNulls name="month" hide={hiddenProducts.month} />,
+                  <Line key="ua" type="monotone" dataKey="ua" stroke={PRODUCT_COLORS.ua} strokeWidth={2.5} dot={false} connectNulls name="ua" hide={hiddenProducts.ua} />,
                 ]}
           </LineChart>
         </ResponsiveContainer>
