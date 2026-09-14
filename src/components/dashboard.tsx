@@ -56,6 +56,8 @@ export function Dashboard() {
   const [startDate, setStartDate] = useState(initial.start);
   const [endDate, setEndDate] = useState(initial.end);
   const [applied, setApplied] = useState(initial);
+  /** Не тягнемо дані автоматично при відкритті — тільки після натискання "Оновити". */
+  const [hasStarted, setHasStarted] = useState(false);
   const [zone, setZone] = useState<ZoneId>("DE");
   /** Розріз звіту: дні (подобово) | декади (1–10 / 11–20 / 21–кінець) */
   const [viewMode, setViewMode] = useState<"days" | "decades">("days");
@@ -67,7 +69,7 @@ export function Dashboard() {
     isError: marketError,
     error: marketErr,
     loadingFutures,
-  } = useMarketReport(applied.start, applied.end);
+  } = useMarketReport(applied.start, applied.end, { enabled: hasStarted });
   const query = {
     isLoading: marketLoading,
     isFetching: marketFetching,
@@ -84,6 +86,7 @@ export function Dashboard() {
       return;
     }
     setApplied({ start: startDate, end: endDate });
+    setHasStarted(true);
   }
 
   return (
@@ -206,6 +209,21 @@ export function Dashboard() {
       </header>
 
       <main className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+        {!hasStarted ? (
+          <Card>
+            <CardContent className="flex items-start gap-3 py-5">
+              <Zap className="mt-0.5 size-5 text-muted-foreground" />
+              <div>
+                <p className="font-medium">Оберіть період і натисніть «Оновити»</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  За замовчуванням підставлений поточний місяць — можете звузити діапазон
+                  (наприклад, останній тиждень), щоб перше завантаження було швидшим.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
+
         {query.isError ? (
           <Card>
             <CardContent className="flex items-start gap-3 py-5">
