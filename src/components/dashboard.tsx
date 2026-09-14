@@ -320,9 +320,10 @@ export function Dashboard() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Усі зони · Spot + UA</CardTitle>
+            <CardTitle>Усі зони · Spot + продукти + UA</CardTitle>
             <CardDescription>
-              Подобові spot-ціни по країнах, середня EU та UA РДН (€). Увімкни/вимкни серії кнопками.
+              Режим «Продукти»: Spot / Day / Week+Weekend / Month (середнє EU) + UA РДН. Режим
+              «Країни»: spot по зонах. Перемикач €/₴ і курс НБУ. Нижче — декадні знижки −30/−20/−10%.
             </CardDescription>
           </CardHeader>
           <CardContent>

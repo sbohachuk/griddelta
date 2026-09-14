@@ -124,7 +124,7 @@ export async function loadCachedZoneQuotes(
       });
     }
   } catch {
-    // Table may not exist yet — fail soft
+    // Table may not exist yet on Neon until migrate runs — fail soft
   }
   return out;
 }

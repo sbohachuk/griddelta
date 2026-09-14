@@ -29,6 +29,19 @@ function isoDateRe(value: unknown): value is string {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
+function parseInput(data: unknown): { startDate: string; endDate: string } {
+  if (!data || typeof data !== "object") throw new Error("Некоректний запит");
+  const rec = data as Record<string, unknown>;
+  if (!isoDateRe(rec.startDate) || !isoDateRe(rec.endDate)) {
+    throw new Error("Дати мають бути у форматі YYYY-MM-DD");
+  }
+  if (rec.startDate > rec.endDate) throw new Error("Початкова дата пізніша за кінцеву");
+  const dates = enumerateDates(rec.startDate, rec.endDate);
+  if (dates.length === 0) throw new Error("Порожній період");
+  if (dates.length > 62) throw new Error("Максимум 62 дні за один запит");
+  return { startDate: rec.startDate, endDate: rec.endDate };
+}
+
 export async function sleep(ms: number) {
   await new Promise((r) => setTimeout(r, ms));
 }
@@ -53,6 +66,7 @@ function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
   const cacheKey = init?.method && init.method !== "GET" ? null : url;
   if (cacheKey && fetchCache.has(cacheKey)) return fetchCache.get(cacheKey)!;
   const p = fetchJsonUncached(url, init).then((raw) => {
+    // Do not keep empty EEX responses in cache — allow retries to re-hit the API
     if (cacheKey && isEexTableUrl(url) && !eexTableHasRows(raw)) {
       fetchCache.delete(cacheKey);
     }
@@ -136,6 +150,10 @@ export function lastPoint(points: EexPoint[]): EexPoint | null {
   return points.length ? points[points.length - 1] : null;
 }
 
+/**
+ * Архів day-futures: останній settlement СТРОГО ДО дня поставки.
+ * Не беремо settlement у день поставки (часто = spot).
+ */
 export function lastPointBefore(points: EexPoint[], deliveryDate: string): EexPoint | null {
   for (let i = points.length - 1; i >= 0; i--) {
     if (points[i].tradeDate < deliveryDate) return points[i];
@@ -150,10 +168,16 @@ export function pointOnDate(points: EexPoint[], date: string): EexPoint | null {
   return null;
 }
 
+/**
+ * Day-контракт: тягнемо історію з 1-го числа,
+ * але endDate = день ПЕРЕД поставкою (якщо поставка вже настала / сьогодні),
+ * щоб не підтягнути фінальний settlement = spot.
+ */
 export async function fetchDayContract(zone: Zone, deliveryDate: string): Promise<EexPoint[]> {
   if (!zone.dayPrefix) return [];
   const shortCode = dayShortCode(zone.dayPrefix, deliveryDate);
   const maturity = monthMaturity(deliveryDate);
+  // Ширше вікно історії — ранні дні місяця інакше часто порожні
   const monthStart = deliveryDate.slice(0, 8) + "01";
   const histStart = addDaysIso(monthStart, -28);
   const tryOnce = async (isRolling: string): Promise<EexPoint[]> => {
@@ -182,6 +206,7 @@ export async function fetchDayContract(zone: Zone, deliveryDate: string): Promis
   return tryOnce("true");
 }
 
+/** Calendar week codes: shortCode=DEB, maturity=202637 */
 async function fetchCalendarMaturitySeries(
   shortCode: string,
   area: string,
@@ -267,6 +292,7 @@ export async function fetchMonthContract(
   const mats = [
     ...new Set(enumerateDates(startDate, endDate).map((d) => monthMaturity(d))),
   ];
+  // Довга історія — month quotes з’являються заздалегідь; API їх віддає
   const histStart = addDaysIso(startDate, -120);
   const histEnd = endDate;
   const chunks: EexPoint[][] = [];
@@ -291,6 +317,7 @@ export async function fetchMonthContract(
         return [] as EexPoint[];
       }
     };
+    // Послідовно: calendar → rolling → пауза → повтор (не паралельно — rate-limit)
     let pts = await tryMode("false");
     if (!pts.length) {
       await sleep(400);
@@ -334,6 +361,7 @@ function parseSpotMonth(raw: unknown, into: SpotMap, uaUah: UaUahMap) {
     const en = seriesName(series);
     const data = (series as { data?: unknown }).data;
     if (!Array.isArray(data)) continue;
+
     if (en.includes("UA-IPS") || (en.includes("UA") && en.includes("Day Ahead"))) {
       for (let i = 0; i < dates.length; i++) {
         const price = data[i];
@@ -348,6 +376,7 @@ function parseSpotMonth(raw: unknown, into: SpotMap, uaUah: UaUahMap) {
       }
       continue;
     }
+
     const zone = ZONES.find((z) => en.includes(z.spotNeedle) && en.includes("Day Ahead"));
     if (!zone) continue;
     for (let i = 0; i < dates.length; i++) {
@@ -433,3 +462,4 @@ export function decadeBounds(isoDate: string): { start: string; end: string; lab
   const endDay = String(lastDay).padStart(2, "0");
   return { start: `${y}-${m}-21`, end: `${y}-${m}-${endDay}`, label: `21–${endDay} ${m}.${y}` };
 }
+
