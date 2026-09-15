@@ -52,6 +52,23 @@ export type DecadeSummary = {
   eurUah: number | null;
 };
 
+/** Середні Spot / Day / Week / Month за період для однієї зони */
+export type ZonePeriodSummary = {
+  zoneId: ZoneId;
+  label: string;
+  periodStart: string;
+  periodEnd: string;
+  spotAvg: number | null;
+  dayAvg: number | null;
+  weekAvg: number | null;
+  weekendAvg: number | null;
+  monthAvg: number | null;
+  dayDeltaEur: number | null;
+  dayDeltaPct: number | null;
+  monthDeltaEur: number | null;
+  monthDeltaPct: number | null;
+};
+
 export type MarketReport = {
   startDate: string;
   endDate: string;
@@ -61,6 +78,10 @@ export type MarketReport = {
   rows: Record<string, Record<ZoneId, CellQuote>>;
   euUa: DailyEuUa[];
   decades: DecadeSummary[];
+  /** Декади по кожній країні (1–10 / 11–20 / 21–кінець) */
+  zoneDecades: ZonePeriodSummary[];
+  /** Середні за весь обраний період (місяць) по кожній країні */
+  zoneMonth: ZonePeriodSummary[];
   warnings: string[];
   sources: { eex: string; spot: string; ua: string };
 };
