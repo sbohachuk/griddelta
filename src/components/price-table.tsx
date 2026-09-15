@@ -1,6 +1,8 @@
+import { useMemo } from "react";
 import { ZONES, type ZoneId } from "@/lib/zones";
 import type { CellQuote, MarketReport } from "@/lib/market-types";
 import { cn, formatPct, formatPrice, formatDateWithWeek } from "@/lib/utils";
+import { buildZoneDecades, buildZoneMonth } from "@/lib/zone-period";
 
 type Metric =
   | "spot"
@@ -89,7 +91,10 @@ export function PriceTable({
                 {zones.map((z) => {
                   const value = read(report.rows[date]?.[z.id], metric);
                   const missing =
-                    (metric.includes("day") && metric !== "dayDeltaEur" && metric !== "dayDeltaPct" && !z.dayPrefix) ||
+                    (metric.includes("day") &&
+                      metric !== "dayDeltaEur" &&
+                      metric !== "dayDeltaPct" &&
+                      !z.dayPrefix) ||
                     (metric.includes("week") &&
                       !metric.includes("weekend") &&
                       !z.weekCode) ||
@@ -164,7 +169,7 @@ export function EuUaTable({ report }: { report: MarketReport }) {
   );
 }
 
-/** Декади: SPOT / DAY / WEEK / WEEKEND + дельти + знижки */
+/** Декади EU: SPOT / DAY / WEEK / WEEKEND + дельти + знижки */
 export function DecadeTable({ report }: { report: MarketReport }) {
   const rows = report.decades ?? [];
   return (
@@ -248,6 +253,194 @@ export function DecadeTable({ report }: { report: MarketReport }) {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+/** Середні за весь обраний період (місяць) — по кожній країні */
+export function ZoneMonthTable({ report }: { report: MarketReport }) {
+  const rows = useMemo(() => buildZoneMonth(report), [report]);
+  return (
+    <div className="overflow-hidden rounded-[calc(var(--radius-xl)-4px)] border border-border">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[880px] border-collapse text-sm">
+          <thead>
+            <tr className="bg-foreground text-background">
+              <th className="px-3 py-2.5 text-left text-[11px] font-medium uppercase">Зона</th>
+              <th className="px-2 py-2.5 text-right text-[11px] font-medium uppercase">SPOT €</th>
+              <th className="px-2 py-2.5 text-right text-[11px] font-medium uppercase">DAY €</th>
+              <th className="px-2 py-2.5 text-right text-[11px] font-medium uppercase">WEEK €</th>
+              <th className="px-2 py-2.5 text-right text-[11px] font-medium uppercase">WE €</th>
+              <th className="px-2 py-2.5 text-right text-[11px] font-medium uppercase">MONTH €</th>
+              <th className="px-2 py-2.5 text-right text-[11px] font-medium uppercase">Δ DAY €</th>
+              <th className="px-2 py-2.5 text-right text-[11px] font-medium uppercase">Δ DAY %</th>
+              <th className="px-2 py-2.5 text-right text-[11px] font-medium uppercase">Δ MONTH €</th>
+              <th className="px-2 py-2.5 text-right text-[11px] font-medium uppercase">Δ MONTH %</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => {
+              const z = ZONES.find((x) => x.id === r.zoneId);
+              return (
+                <tr
+                  key={r.zoneId}
+                  className={cn("border-t border-border", i % 2 === 0 ? "bg-card" : "bg-muted/40")}
+                >
+                  <td className="px-3 py-2 font-medium">
+                    {r.zoneId}
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">{z?.name}</span>
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums">{formatPrice(r.spotAvg)}</td>
+                  <td className="px-2 py-2 text-right tabular-nums">{formatPrice(r.dayAvg)}</td>
+                  <td className="px-2 py-2 text-right tabular-nums">{formatPrice(r.weekAvg)}</td>
+                  <td className="px-2 py-2 text-right tabular-nums">{formatPrice(r.weekendAvg)}</td>
+                  <td className="px-2 py-2 text-right tabular-nums">{formatPrice(r.monthAvg)}</td>
+                  <td
+                    className={cn(
+                      "px-2 py-2 text-right tabular-nums",
+                      r.dayDeltaEur != null && r.dayDeltaEur > 0 && "text-gain",
+                      r.dayDeltaEur != null && r.dayDeltaEur < 0 && "text-loss",
+                    )}
+                  >
+                    {formatPrice(r.dayDeltaEur)}
+                  </td>
+                  <td
+                    className={cn(
+                      "px-2 py-2 text-right tabular-nums",
+                      r.dayDeltaPct != null && r.dayDeltaPct > 0 && "text-gain",
+                      r.dayDeltaPct != null && r.dayDeltaPct < 0 && "text-loss",
+                    )}
+                  >
+                    {formatPct(r.dayDeltaPct)}
+                  </td>
+                  <td
+                    className={cn(
+                      "px-2 py-2 text-right tabular-nums",
+                      r.monthDeltaEur != null && r.monthDeltaEur > 0 && "text-gain",
+                      r.monthDeltaEur != null && r.monthDeltaEur < 0 && "text-loss",
+                    )}
+                  >
+                    {formatPrice(r.monthDeltaEur)}
+                  </td>
+                  <td
+                    className={cn(
+                      "px-2 py-2 text-right tabular-nums",
+                      r.monthDeltaPct != null && r.monthDeltaPct > 0 && "text-gain",
+                      r.monthDeltaPct != null && r.monthDeltaPct < 0 && "text-loss",
+                    )}
+                  >
+                    {formatPct(r.monthDeltaPct)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/** Декади × кожна країна */
+export function ZoneDecadeTable({ report }: { report: MarketReport }) {
+  const rows = useMemo(() => buildZoneDecades(report), [report]);
+  const labels = useMemo(() => [...new Set(rows.map((r) => r.label))], [rows]);
+
+  return (
+    <div className="space-y-4">
+      {labels.map((label) => {
+        const slice = rows.filter((r) => r.label === label);
+        return (
+          <div
+            key={label}
+            className="overflow-hidden rounded-[calc(var(--radius-xl)-4px)] border border-border"
+          >
+            <div className="border-b border-border bg-muted/30 px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Декада {label}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[880px] border-collapse text-sm">
+                <thead>
+                  <tr className="bg-foreground text-background">
+                    <th className="px-3 py-2.5 text-left text-[11px] font-medium uppercase">Зона</th>
+                    <th className="px-2 py-2.5 text-right text-[11px] font-medium uppercase">SPOT €</th>
+                    <th className="px-2 py-2.5 text-right text-[11px] font-medium uppercase">DAY €</th>
+                    <th className="px-2 py-2.5 text-right text-[11px] font-medium uppercase">WEEK €</th>
+                    <th className="px-2 py-2.5 text-right text-[11px] font-medium uppercase">WE €</th>
+                    <th className="px-2 py-2.5 text-right text-[11px] font-medium uppercase">MONTH €</th>
+                    <th className="px-2 py-2.5 text-right text-[11px] font-medium uppercase">Δ DAY €</th>
+                    <th className="px-2 py-2.5 text-right text-[11px] font-medium uppercase">Δ DAY %</th>
+                    <th className="px-2 py-2.5 text-right text-[11px] font-medium uppercase">Δ MONTH €</th>
+                    <th className="px-2 py-2.5 text-right text-[11px] font-medium uppercase">Δ MONTH %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {slice.map((r, i) => {
+                    const z = ZONES.find((x) => x.id === r.zoneId);
+                    return (
+                      <tr
+                        key={r.zoneId}
+                        className={cn(
+                          "border-t border-border",
+                          i % 2 === 0 ? "bg-card" : "bg-muted/40",
+                        )}
+                      >
+                        <td className="px-3 py-2 font-medium">
+                          {r.zoneId}
+                          <span className="ml-2 text-xs font-normal text-muted-foreground">
+                            {z?.name}
+                          </span>
+                        </td>
+                        <td className="px-2 py-2 text-right tabular-nums">{formatPrice(r.spotAvg)}</td>
+                        <td className="px-2 py-2 text-right tabular-nums">{formatPrice(r.dayAvg)}</td>
+                        <td className="px-2 py-2 text-right tabular-nums">{formatPrice(r.weekAvg)}</td>
+                        <td className="px-2 py-2 text-right tabular-nums">{formatPrice(r.weekendAvg)}</td>
+                        <td className="px-2 py-2 text-right tabular-nums">{formatPrice(r.monthAvg)}</td>
+                        <td
+                          className={cn(
+                            "px-2 py-2 text-right tabular-nums",
+                            r.dayDeltaEur != null && r.dayDeltaEur > 0 && "text-gain",
+                            r.dayDeltaEur != null && r.dayDeltaEur < 0 && "text-loss",
+                          )}
+                        >
+                          {formatPrice(r.dayDeltaEur)}
+                        </td>
+                        <td
+                          className={cn(
+                            "px-2 py-2 text-right tabular-nums",
+                            r.dayDeltaPct != null && r.dayDeltaPct > 0 && "text-gain",
+                            r.dayDeltaPct != null && r.dayDeltaPct < 0 && "text-loss",
+                          )}
+                        >
+                          {formatPct(r.dayDeltaPct)}
+                        </td>
+                        <td
+                          className={cn(
+                            "px-2 py-2 text-right tabular-nums",
+                            r.monthDeltaEur != null && r.monthDeltaEur > 0 && "text-gain",
+                            r.monthDeltaEur != null && r.monthDeltaEur < 0 && "text-loss",
+                          )}
+                        >
+                          {formatPrice(r.monthDeltaEur)}
+                        </td>
+                        <td
+                          className={cn(
+                            "px-2 py-2 text-right tabular-nums",
+                            r.monthDeltaPct != null && r.monthDeltaPct > 0 && "text-gain",
+                            r.monthDeltaPct != null && r.monthDeltaPct < 0 && "text-loss",
+                          )}
+                        >
+                          {formatPct(r.monthDeltaPct)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
