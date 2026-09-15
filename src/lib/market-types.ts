@@ -78,10 +78,9 @@ export type MarketReport = {
   rows: Record<string, Record<ZoneId, CellQuote>>;
   euUa: DailyEuUa[];
   decades: DecadeSummary[];
-  /** Декади по кожній країні (1–10 / 11–20 / 21–кінець) */
-  zoneDecades: ZonePeriodSummary[];
-  /** Середні за весь обраний період (місяць) по кожній країні */
-  zoneMonth: ZonePeriodSummary[];
+  /** Optional: filled client-side via buildZoneDecades / buildZoneMonth */
+  zoneDecades?: ZonePeriodSummary[];
+  zoneMonth?: ZonePeriodSummary[];
   warnings: string[];
   sources: { eex: string; spot: string; ua: string };
 };
