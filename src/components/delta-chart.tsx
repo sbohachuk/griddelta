@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -122,11 +122,50 @@ function meanOf(vals: (number | null)[]): number | null {
   return Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 100) / 100;
 }
 
-/** Подобовий графік зони: Spot · Day · Week · Month + UA РДН */
-export function DeltaChart({ report, zone }: { report: MarketReport; zone: ZoneId }) {
-  const meta = ZONE_BY_ID[zone];
+/** Середнє продукту по обраних зонах за один день */
+function avgProduct(
+  report: MarketReport,
+  date: string,
+  zones: ZoneId[],
+  product: CountryProduct,
+): number | null {
+  const vals: number[] = [];
+  for (const z of zones) {
+    const v = cellProduct(report.rows[date]?.[z], product);
+    if (v != null) vals.push(v);
+  }
+  return meanOf(vals);
+}
+
+/**
+ * Подобовий графік: мультивибір країн (без UA) → середні Spot / Day / Week+WE / Month.
+ * Якщо обрана одна країна — додається UA РДН для порівняння.
+ */
+export function DeltaChart({
+  report,
+  zone,
+}: {
+  report: MarketReport;
+  zone: ZoneId;
+}) {
   const [currency, setCurrency] = useState<Currency>("EUR");
   const rate = useEurUah(report);
+  const [selected, setSelected] = useState<Record<ZoneId, boolean>>(() =>
+    Object.fromEntries(ZONES.map((z) => [z.id, z.id === zone])) as Record<ZoneId, boolean>,
+  );
+
+  // Синхрон з чіпом зони в дашборді: якщо змінили зону ззовні — увімкнути її
+  useEffect(() => {
+    setSelected((prev) => {
+      if (prev[zone]) return prev;
+      return { ...prev, [zone]: true };
+    });
+  }, [zone]);
+
+  const selectedZones = useMemo(
+    () => ZONES.filter((z) => selected[z.id]).map((z) => z.id),
+    [selected],
+  );
 
   const uaByDate = useMemo(() => {
     const m = new Map<string, number | null>();
@@ -135,28 +174,29 @@ export function DeltaChart({ report, zone }: { report: MarketReport; zone: ZoneI
   }, [report.euUa]);
 
   const data = report.dates.map((date) => {
-    const cell = report.rows[date]?.[zone];
-    const week =
-      cell?.weekFutures != null || cell?.weekendFutures != null
-        ? meanOf([cell?.weekFutures ?? null, cell?.weekendFutures ?? null])
-        : null;
+    const zones = selectedZones.length ? selectedZones : ([zone] as ZoneId[]);
     return {
       date: formatDateWithWeek(date),
       dayLabel: date.slice(8, 10),
       raw: date,
-      spot: convert(cell?.spot, currency, rate),
-      day: convert(cell?.dayFutures, currency, rate),
-      month: convert(cell?.monthFutures, currency, rate),
-      week: convert(week, currency, rate),
-      ua: convert(uaByDate.get(date) ?? null, currency, rate),
+      spot: convert(avgProduct(report, date, zones, "spot"), currency, rate),
+      day: convert(avgProduct(report, date, zones, "day"), currency, rate),
+      week: convert(avgProduct(report, date, zones, "week"), currency, rate),
+      month: convert(avgProduct(report, date, zones, "month"), currency, rate),
+      ua:
+        zones.length === 1
+          ? convert(uaByDate.get(date) ?? null, currency, rate)
+          : null,
     };
   });
 
-  const keys = ["spot", "day", "week", "month", "ua"];
+  const keys =
+    selectedZones.length === 1 ? ["spot", "day", "week", "month", "ua"] : ["spot", "day", "week", "month"];
   const domain = yDomain(data, keys);
   const unit = unitLabel(currency);
   const [hidden, setHidden] = useState<Record<string, boolean>>({});
   const toggleKey = (key: string) => setHidden((prev) => ({ ...prev, [key]: !prev[key] }));
+
   const legendLabels: Record<string, string> = {
     spot: "Spot",
     day: "Day",
@@ -165,8 +205,62 @@ export function DeltaChart({ report, zone }: { report: MarketReport; zone: ZoneI
     ua: "UA РДН",
   };
 
+  function setAll(on: boolean) {
+    setSelected(Object.fromEntries(ZONES.map((z) => [z.id, on])) as Record<ZoneId, boolean>);
+  }
+
+  const titleHint =
+    selectedZones.length === 0
+      ? "Оберіть хоча б одну країну"
+      : selectedZones.length === 1
+        ? `${ZONE_BY_ID[selectedZones[0]!]?.name ?? selectedZones[0]} · продукти + UA РДН`
+        : `Середнє по ${selectedZones.length} країнах: ${selectedZones.join(", ")}`;
+
   return (
     <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setAll(true)}
+          className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground hover:text-foreground"
+        >
+          Усі
+        </button>
+        <button
+          type="button"
+          onClick={() => setAll(false)}
+          className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground hover:text-foreground"
+        >
+          Жодної
+        </button>
+        {ZONES.map((z) => (
+          <button
+            key={z.id}
+            type="button"
+            onClick={() => setSelected((s) => ({ ...s, [z.id]: !s[z.id] }))}
+            className={cn(
+              "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+              selected[z.id]
+                ? "border-foreground bg-foreground text-background"
+                : "border-border text-muted-foreground",
+            )}
+            style={
+              selected[z.id]
+                ? {
+                    borderColor: ZONE_COLORS[z.id],
+                    background: ZONE_COLORS[z.id],
+                    color: "#0c0d11",
+                  }
+                : undefined
+            }
+            title={z.name}
+          >
+            {z.id}
+            {!z.dayPrefix ? <span className="ml-0.5 text-[9px] opacity-70">M</span> : null}
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-muted-foreground">{titleHint}</p>
       <CurrencyToggle currency={currency} onChange={setCurrency} rate={rate} />
       <div className="h-[280px] w-full sm:h-[320px]">
         <ResponsiveContainer width="100%" height="100%">
@@ -207,14 +301,7 @@ export function DeltaChart({ report, zone }: { report: MarketReport; zone: ZoneI
               }}
               formatter={(value, name) => {
                 const n = typeof value === "number" ? value.toFixed(2) : "—";
-                const labels: Record<string, string> = {
-                  spot: "Spot",
-                  day: "Day futures",
-                  month: "Month futures",
-                  week: "Week+Weekend",
-                  ua: "UA РДН",
-                };
-                return [`${n} ${unit}`, labels[String(name)] ?? String(name)];
+                return [`${n} ${unit}`, legendLabels[String(name)] ?? String(name)];
               }}
             />
             <Legend
@@ -236,13 +323,60 @@ export function DeltaChart({ report, zone }: { report: MarketReport; zone: ZoneI
                 );
               }}
             />
-            <Line type="monotone" dataKey="spot" stroke={PRODUCT_COLORS.spot} strokeWidth={2} dot={false} connectNulls name="spot" hide={hidden.spot} />
-            {meta.dayPrefix ? (
-              <Line type="monotone" dataKey="day" stroke={PRODUCT_COLORS.day} strokeWidth={2} dot={false} connectNulls name="day" hide={hidden.day} />
+            <Line
+              type="monotone"
+              dataKey="spot"
+              stroke={PRODUCT_COLORS.spot}
+              strokeWidth={2}
+              dot={false}
+              connectNulls
+              name="spot"
+              hide={hidden.spot}
+            />
+            <Line
+              type="monotone"
+              dataKey="day"
+              stroke={PRODUCT_COLORS.day}
+              strokeWidth={2}
+              dot={false}
+              connectNulls
+              name="day"
+              hide={hidden.day}
+            />
+            <Line
+              type="monotone"
+              dataKey="week"
+              stroke={PRODUCT_COLORS.week}
+              strokeWidth={1.5}
+              strokeDasharray="4 3"
+              dot={false}
+              connectNulls
+              name="week"
+              hide={hidden.week}
+            />
+            <Line
+              type="monotone"
+              dataKey="month"
+              stroke={PRODUCT_COLORS.month}
+              strokeWidth={1.5}
+              strokeDasharray="2 2"
+              dot={false}
+              connectNulls
+              name="month"
+              hide={hidden.month}
+            />
+            {selectedZones.length === 1 ? (
+              <Line
+                type="monotone"
+                dataKey="ua"
+                stroke={PRODUCT_COLORS.ua}
+                strokeWidth={2}
+                dot={false}
+                connectNulls
+                name="ua"
+                hide={hidden.ua}
+              />
             ) : null}
-            <Line type="monotone" dataKey="week" stroke={PRODUCT_COLORS.week} strokeWidth={1.5} strokeDasharray="4 3" dot={false} connectNulls name="week" hide={hidden.week} />
-            <Line type="monotone" dataKey="month" stroke={PRODUCT_COLORS.month} strokeWidth={1.5} strokeDasharray="2 2" dot={false} connectNulls name="month" hide={hidden.month} />
-            <Line type="monotone" dataKey="ua" stroke={PRODUCT_COLORS.ua} strokeWidth={2} dot={false} connectNulls name="ua" hide={hidden.ua} />
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -440,13 +574,12 @@ export function OverviewChart({ report }: { report: MarketReport }) {
             ))}
           </div>
           <p className="text-xs text-muted-foreground">
-            Порівняння всіх країн за {productLabel}. Увімкніть/вимкніть зони чіпами вище.
+            Порівняння країн за {productLabel}. Увімкніть/вимкніть зони чіпами вище.
           </p>
         </div>
       ) : (
         <p className="text-xs text-muted-foreground">
-          Середні по EU: Spot · Day · Week+Weekend · Month, плюс UA РДН. Масштаб — за наявними
-          точками періоду.
+          Середні по EU: Spot · Day · Week+Weekend · Month, плюс UA РДН.
         </p>
       )}
 
