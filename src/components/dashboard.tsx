@@ -80,6 +80,20 @@ export function Dashboard() {
   const stats = report ? summarize(report, zone) : null;
   const zoneMeta = ZONES.find((z) => z.id === zone)!;
 
+  /** Середня Δ за весь поточний місяць (окремо від обраного діапазону) — тягнеться лише після старту. */
+  const monthRange = useMemo(() => defaultRange(), []);
+  const isMonthSameAsApplied = applied.start === monthRange.start && applied.end === monthRange.end;
+  const { report: monthReport, isLoading: monthLoading } = useMarketReport(
+    monthRange.start,
+    monthRange.end,
+    { enabled: hasStarted && !isMonthSameAsApplied },
+  );
+  const monthStats = isMonthSameAsApplied
+    ? stats
+    : monthReport
+      ? summarize(monthReport, zone)
+      : null;
+
   function applyRange() {
     if (startDate > endDate) {
       toast.error("Початкова дата пізніша за кінцеву");
@@ -240,12 +254,18 @@ export function Dashboard() {
           </Card>
         ) : null}
 
-        <section className="grid gap-3 sm:grid-cols-3">
+        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Kpi
             label="Середня Δ day"
             value={stats ? formatPrice(stats.avg) : null}
-            hint="ф’ючерс − спот"
+            hint="ф’ючерс − спот (обраний період)"
             loading={query.isLoading}
+          />
+          <Kpi
+            label="Середня Δ day (місяць)"
+            value={monthStats ? formatPrice(monthStats.avg) : null}
+            hint={`ф’ючерс − спот · ${zoneMeta.name}`}
+            loading={isMonthSameAsApplied ? query.isLoading : monthLoading}
           />
           <Kpi
             label="Макс. відхилення"
