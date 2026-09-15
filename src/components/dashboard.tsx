@@ -286,7 +286,8 @@ export function Dashboard() {
           <CardHeader>
             <CardTitle>Зона</CardTitle>
             <CardDescription>
-              Подобові контракти є у DE, AT, FR, CZ, HU. SK, RO, PL, BG — лише місяць.
+              Активна зона для таблиць і KPI. На графіку продуктів можна обрати кілька країн
+              (мультивибір). SK, RO, PL, BG — без day-контракту (M).
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -314,16 +315,10 @@ export function Dashboard() {
         <Card>
           <CardHeader className="flex-row items-end justify-between gap-3">
             <div>
-              <CardTitle>
-                {zoneMeta.name}
-                <span className="ml-2 font-sans text-sm font-normal text-muted-foreground">
-                  {zoneMeta.short}
-                </span>
-              </CardTitle>
+              <CardTitle>Продукти · середнє по країнах</CardTitle>
               <CardDescription>
-                {zoneMeta.dayPrefix
-                  ? `Day ${zoneMeta.dayPrefix}01… · Week ${zoneMeta.weekCode ?? "—"} · Month ${zoneMeta.monthCode}`
-                  : `Немає day · Month ${zoneMeta.monthCode}`}
+                Оберіть одну або кілька країн (без UA). Графік показує середні Spot / Day / Week+WE /
+                Month. Якщо країна одна — додатково UA РДН.
               </CardDescription>
             </div>
             {stats?.avg !== null && stats ? (
