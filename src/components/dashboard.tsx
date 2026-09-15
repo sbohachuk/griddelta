@@ -22,10 +22,15 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DeltaChart, OverviewChart } from "@/components/delta-chart";
-import { PriceTable, EuUaTable, DecadeTable } from "@/components/price-table";
+import {
+  PriceTable,
+  EuUaTable,
+  DecadeTable,
+  ZoneMonthTable,
+  ZoneDecadeTable,
+} from "@/components/price-table";
 
 function defaultRange() {
-  // За замовчуванням — повний поточний місяць
   return monthBounds(isoToday());
 }
 
@@ -56,10 +61,8 @@ export function Dashboard() {
   const [startDate, setStartDate] = useState(initial.start);
   const [endDate, setEndDate] = useState(initial.end);
   const [applied, setApplied] = useState(initial);
-  /** Не тягнемо дані автоматично при відкритті — тільки після натискання "Оновити". */
   const [hasStarted, setHasStarted] = useState(false);
   const [zone, setZone] = useState<ZoneId>("DE");
-  /** Розріз звіту: дні (подобово) | декади (1–10 / 11–20 / 21–кінець) */
   const [viewMode, setViewMode] = useState<"days" | "decades">("days");
 
   const {
@@ -80,7 +83,6 @@ export function Dashboard() {
   const stats = report ? summarize(report, zone) : null;
   const zoneMeta = ZONES.find((z) => z.id === zone)!;
 
-  /** Середня Δ за весь поточний місяць (окремо від обраного діапазону) — тягнеться лише після старту. */
   const monthRange = useMemo(() => defaultRange(), []);
   const isMonthSameAsApplied = applied.start === monthRange.start && applied.end === monthRange.end;
   const { report: monthReport, isLoading: monthLoading } = useMarketReport(
@@ -153,11 +155,7 @@ export function Dashboard() {
               />
             </div>
             <Button type="submit" disabled={query.isFetching} className="w-full sm:w-auto">
-              {query.isFetching ? (
-                <Loader2 className="animate-spin" />
-              ) : (
-                <RefreshCw />
-              )}
+              {query.isFetching ? <Loader2 className="animate-spin" /> : <RefreshCw />}
               Оновити
             </Button>
             <Button
@@ -182,7 +180,6 @@ export function Dashboard() {
             </p>
           ) : null}
 
-          {/* Розріз: Дні / Декади */}
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
               Розріз звіту
@@ -216,7 +213,7 @@ export function Dashboard() {
             <span className="text-xs text-muted-foreground">
               {viewMode === "days"
                 ? "Подобові ціни Spot / Day / Week / Month і дельти"
-                : "Середні за декаду + Δ + знижки −30/−20/−10% у € і ₴"}
+                : "Середні за місяць і декаду по кожній країні + EU-знижки"}
             </span>
           </div>
         </div>
@@ -307,9 +304,7 @@ export function Dashboard() {
                   )}
                 >
                   {z.id}
-                  {!z.dayPrefix ? (
-                    <span className="ml-1 text-[10px] opacity-60">M</span>
-                  ) : null}
+                  {!z.dayPrefix ? <span className="ml-1 text-[10px] opacity-60">M</span> : null}
                 </button>
               ))}
             </div>
@@ -360,8 +355,9 @@ export function Dashboard() {
           <CardHeader>
             <CardTitle>Усі зони · Spot + продукти + UA</CardTitle>
             <CardDescription>
-              Режим «Продукти»: Spot / Day / Week+Weekend / Month (середнє EU) + UA РДН. Режим
-              «Країни»: spot по зонах. Перемикач €/₴ і курс НБУ. Нижче — декадні знижки −30/−20/−10%.
+              Режим «Продукти»: середні EU Spot / Day / Week+WE / Month + UA РДН. Режим «Країни»:
+              порівняння всіх зон за обраним продуктом (Spot · Day · Week+WE · Month). Перемикач €/₴
+              і курс НБУ.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -376,85 +372,118 @@ export function Dashboard() {
         </Card>
 
         {viewMode === "days" ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>По днях</CardTitle>
-            <CardDescription>
-              Формат подобово (як у початковому звіті): Spot · Day-архів (до поставки) · Week · Weekend · Month · дельти.
-              Day ніколи не підміняється Spot у день поставки.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {query.isLoading ? (
-              <div className="grid gap-2">
-                <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-64 w-full" />
-              </div>
-            ) : report ? (
-              <Tabs defaultValue="dayDeltaEur">
-                <div className="overflow-x-auto">
-                  <TabsList>
-                    <TabsTrigger value="spot">Spot</TabsTrigger>
-                    <TabsTrigger value="dayFutures">Day</TabsTrigger>
-                    <TabsTrigger value="weekFutures">Week</TabsTrigger>
-                    <TabsTrigger value="weekendFutures">Weekend</TabsTrigger>
-                    <TabsTrigger value="monthFutures">Month</TabsTrigger>
-                    <TabsTrigger value="dayDeltaEur">Δ day €</TabsTrigger>
-                    <TabsTrigger value="dayDeltaPct">Δ day %</TabsTrigger>
-                    <TabsTrigger value="monthDeltaEur">Δ month €</TabsTrigger>
-                    <TabsTrigger value="euUa">EU + UA</TabsTrigger>
-                  </TabsList>
+          <Card>
+            <CardHeader>
+              <CardTitle>По днях</CardTitle>
+              <CardDescription>
+                Формат подобово: Spot · Day-архів (до поставки) · Week · Weekend · Month · дельти.
+                Day ніколи не підміняється Spot у день поставки.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {query.isLoading ? (
+                <div className="grid gap-2">
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-64 w-full" />
                 </div>
-                <TabsContent value="spot">
-                  <PriceTable report={report} metric="spot" highlight={zone} />
-                </TabsContent>
-                <TabsContent value="dayFutures">
-                  <PriceTable report={report} metric="dayFutures" highlight={zone} />
-                </TabsContent>
-                <TabsContent value="weekFutures">
-                  <PriceTable report={report} metric="weekFutures" highlight={zone} />
-                </TabsContent>
-                <TabsContent value="weekendFutures">
-                  <PriceTable report={report} metric="weekendFutures" highlight={zone} />
-                </TabsContent>
-                <TabsContent value="monthFutures">
-                  <PriceTable report={report} metric="monthFutures" highlight={zone} />
-                </TabsContent>
-                <TabsContent value="dayDeltaEur">
-                  <PriceTable report={report} metric="dayDeltaEur" highlight={zone} />
-                </TabsContent>
-                <TabsContent value="dayDeltaPct">
-                  <PriceTable report={report} metric="dayDeltaPct" highlight={zone} />
-                </TabsContent>
-                <TabsContent value="monthDeltaEur">
-                  <PriceTable report={report} metric="monthDeltaEur" highlight={zone} />
-                </TabsContent>
-                <TabsContent value="euUa">
-                  <EuUaTable report={report} />
-                </TabsContent>
-              </Tabs>
-            ) : null}
-          </CardContent>
-        </Card>
-
-        
+              ) : report ? (
+                <Tabs defaultValue="dayDeltaEur">
+                  <div className="overflow-x-auto">
+                    <TabsList>
+                      <TabsTrigger value="spot">Spot</TabsTrigger>
+                      <TabsTrigger value="dayFutures">Day</TabsTrigger>
+                      <TabsTrigger value="weekFutures">Week</TabsTrigger>
+                      <TabsTrigger value="weekendFutures">Weekend</TabsTrigger>
+                      <TabsTrigger value="monthFutures">Month</TabsTrigger>
+                      <TabsTrigger value="dayDeltaEur">Δ day €</TabsTrigger>
+                      <TabsTrigger value="dayDeltaPct">Δ day %</TabsTrigger>
+                      <TabsTrigger value="monthDeltaEur">Δ month €</TabsTrigger>
+                      <TabsTrigger value="euUa">EU + UA</TabsTrigger>
+                    </TabsList>
+                  </div>
+                  <TabsContent value="spot">
+                    <PriceTable report={report} metric="spot" highlight={zone} />
+                  </TabsContent>
+                  <TabsContent value="dayFutures">
+                    <PriceTable report={report} metric="dayFutures" highlight={zone} />
+                  </TabsContent>
+                  <TabsContent value="weekFutures">
+                    <PriceTable report={report} metric="weekFutures" highlight={zone} />
+                  </TabsContent>
+                  <TabsContent value="weekendFutures">
+                    <PriceTable report={report} metric="weekendFutures" highlight={zone} />
+                  </TabsContent>
+                  <TabsContent value="monthFutures">
+                    <PriceTable report={report} metric="monthFutures" highlight={zone} />
+                  </TabsContent>
+                  <TabsContent value="dayDeltaEur">
+                    <PriceTable report={report} metric="dayDeltaEur" highlight={zone} />
+                  </TabsContent>
+                  <TabsContent value="dayDeltaPct">
+                    <PriceTable report={report} metric="dayDeltaPct" highlight={zone} />
+                  </TabsContent>
+                  <TabsContent value="monthDeltaEur">
+                    <PriceTable report={report} metric="monthDeltaEur" highlight={zone} />
+                  </TabsContent>
+                  <TabsContent value="euUa">
+                    <EuUaTable report={report} />
+                  </TabsContent>
+                </Tabs>
+              ) : null}
+            </CardContent>
+          </Card>
         ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle>Декади</CardTitle>
-            <CardDescription>
-              Інший формат: середні за декаду (1–10 / 11–20 / 21–кінець) — SPOT, DAY, WEEK, WEEKEND,
-              дельти €/% і ціни зі знижкою −30% / −20% / −10% у € та ₴.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {query.isLoading ? (
-              <Skeleton className="h-40 w-full" />
-            ) : report ? (
-              <DecadeTable report={report} />
-            ) : null}
-          </CardContent>
-        </Card>
+          <>
+            <Card>
+              <CardHeader>
+                <CardTitle>Середні за період · по країнах</CardTitle>
+                <CardDescription>
+                  Середні Spot / Day / Week / Weekend / Month за весь обраний діапазон для кожної
+                  зони, плюс дельти day і month.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {query.isLoading ? (
+                  <Skeleton className="h-40 w-full" />
+                ) : report ? (
+                  <ZoneMonthTable report={report} />
+                ) : null}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Декади · по країнах</CardTitle>
+                <CardDescription>
+                  Середні 1–10 / 11–20 / 21–кінець для кожної зони окремо (Spot, Day, Week, WE, Month +
+                  Δ).
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {query.isLoading ? (
+                  <Skeleton className="h-40 w-full" />
+                ) : report ? (
+                  <ZoneDecadeTable report={report} />
+                ) : null}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Декади · EU (знижки)</CardTitle>
+                <CardDescription>
+                  Середній EU Spot за декаду, дельти та ціни зі знижкою −30% / −20% / −10% у € та ₴.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {query.isLoading ? (
+                  <Skeleton className="h-40 w-full" />
+                ) : report ? (
+                  <DecadeTable report={report} />
+                ) : null}
+              </CardContent>
+            </Card>
+          </>
         )}
 
         {report?.warnings.length ? (
@@ -471,12 +500,13 @@ export function Dashboard() {
           <Separator />
           <p className="flex items-center gap-2 pt-3">
             <Zap className="size-3.5" />
-            Джерела: {report?.sources.eex ?? "EEX"} · {report?.sources.spot ?? "Energy-Charts"} · {report?.sources.ua ?? "UA РДН"}
+            Джерела: {report?.sources.eex ?? "EEX"} · {report?.sources.spot ?? "Energy-Charts"} ·{" "}
+            {report?.sources.ua ?? "UA РДН"}
           </p>
           <p className="flex items-center gap-2">
             <Activity className="size-3.5" />
-            Подобовий shortCode — префікс зони + день місяця (DB05, AB05, F705). Місячний код
-            не підходить для day-контрактів.
+            Подобовий shortCode — префікс зони + день місяця (DB05, AB05, F705). Місячний код не
+            підходить для day-контрактів.
           </p>
         </footer>
       </main>
