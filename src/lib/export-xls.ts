@@ -107,6 +107,8 @@ function decadeSheet(report: MarketReport): string {
     cellStr("DAY €", "header"),
     cellStr("WEEK €", "header"),
     cellStr("WEEKEND €", "header"),
+    cellStr("UA РДН €", "header"),
+    cellStr("UA РДН ₴", "header"),
     cellStr("Δ DAY €", "header"),
     cellStr("Δ DAY %", "header"),
     cellStr("Δ WEEK €", "header"),
@@ -127,6 +129,8 @@ function decadeSheet(report: MarketReport): string {
           cellNum(d.dayAvgEur),
           cellNum(d.weekAvgEur),
           cellNum(d.weekendAvgEur),
+          cellNum(d.uaRdnAvgEur),
+          cellNum(d.uaRdnAvgUah),
           cellNum(d.dayDeltaEur, deltaStyle(d.dayDeltaEur)),
           cellNum(d.dayDeltaPct, deltaStyle(d.dayDeltaPct)),
           cellNum(d.weekDeltaEur, deltaStyle(d.weekDeltaEur)),
@@ -144,11 +148,11 @@ function decadeSheet(report: MarketReport): string {
 <Worksheet ss:Name="Декади">
   <Table>
     <Column ss:Width="100"/>
-    ${Array.from({ length: 14 })
+    ${Array.from({ length: 16 })
       .map(() => `<Column ss:Width="72"/>`)
       .join("")}
-    <Row><Cell ss:StyleID="title" ss:MergeAcross="14"><Data ss:Type="String">Декада: SPOT / DAY / WEEK / WEEKEND + дельти + знижки 30/20/10%</Data></Cell></Row>
-    <Row><Cell ss:StyleID="meta" ss:MergeAcross="14"><Data ss:Type="String">${xmlEscape(`Період ${report.startDate} — ${report.endDate}`)}</Data></Cell></Row>
+    <Row><Cell ss:StyleID="title" ss:MergeAcross="16"><Data ss:Type="String">Декада: SPOT / DAY / WEEK / WEEKEND + UA РДН + дельти + знижки 30/20/10%</Data></Cell></Row>
+    <Row><Cell ss:StyleID="meta" ss:MergeAcross="16"><Data ss:Type="String">${xmlEscape(`Період ${report.startDate} — ${report.endDate}`)}</Data></Cell></Row>
     <Row></Row>
     <Row>${header}</Row>
     ${body}

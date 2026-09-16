@@ -169,13 +169,13 @@ export function EuUaTable({ report }: { report: MarketReport }) {
   );
 }
 
-/** Декади EU: SPOT / DAY / WEEK / WEEKEND + дельти + знижки */
+/** Декади EU: SPOT / DAY / WEEK / WEEKEND + UA РДН + дельти + знижки */
 export function DecadeTable({ report }: { report: MarketReport }) {
   const rows = report.decades ?? [];
   return (
     <div className="overflow-hidden rounded-[calc(var(--radius-xl)-4px)] border border-border">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[960px] border-collapse text-sm">
+        <table className="w-full min-w-[1080px] border-collapse text-sm">
           <thead>
             <tr className="bg-foreground text-background">
               <th className="px-3 py-2.5 text-left text-[11px] font-medium uppercase">Декада</th>
@@ -183,6 +183,8 @@ export function DecadeTable({ report }: { report: MarketReport }) {
               <th className="px-2 py-2.5 text-right text-[11px] font-medium uppercase">DAY €</th>
               <th className="px-2 py-2.5 text-right text-[11px] font-medium uppercase">WEEK €</th>
               <th className="px-2 py-2.5 text-right text-[11px] font-medium uppercase">WE €</th>
+              <th className="px-2 py-2.5 text-right text-[11px] font-medium uppercase">UA РДН €</th>
+              <th className="px-2 py-2.5 text-right text-[11px] font-medium uppercase">UA ₴</th>
               <th className="px-2 py-2.5 text-right text-[11px] font-medium uppercase">Δ DAY €</th>
               <th className="px-2 py-2.5 text-right text-[11px] font-medium uppercase">Δ DAY %</th>
               <th className="px-2 py-2.5 text-right text-[11px] font-medium uppercase">Δ WEEK €</th>
@@ -206,6 +208,8 @@ export function DecadeTable({ report }: { report: MarketReport }) {
                 <td className="px-2 py-2 text-right tabular-nums">{formatPrice(d.dayAvgEur)}</td>
                 <td className="px-2 py-2 text-right tabular-nums">{formatPrice(d.weekAvgEur)}</td>
                 <td className="px-2 py-2 text-right tabular-nums">{formatPrice(d.weekendAvgEur)}</td>
+                <td className="px-2 py-2 text-right tabular-nums">{formatPrice(d.uaRdnAvgEur)}</td>
+                <td className="px-2 py-2 text-right tabular-nums">{formatPrice(d.uaRdnAvgUah)}</td>
                 <td
                   className={cn(
                     "px-2 py-2 text-right tabular-nums",
