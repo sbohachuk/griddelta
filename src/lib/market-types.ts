@@ -39,6 +39,9 @@ export type DecadeSummary = {
   dayAvgEur: number | null;
   weekAvgEur: number | null;
   weekendAvgEur: number | null;
+  /** Середній UA РДН за декаду */
+  uaRdnAvgEur: number | null;
+  uaRdnAvgUah: number | null;
   dayDeltaEur: number | null;
   dayDeltaPct: number | null;
   weekDeltaEur: number | null;
@@ -78,7 +81,6 @@ export type MarketReport = {
   rows: Record<string, Record<ZoneId, CellQuote>>;
   euUa: DailyEuUa[];
   decades: DecadeSummary[];
-  /** Optional: filled client-side via buildZoneDecades / buildZoneMonth */
   zoneDecades?: ZonePeriodSummary[];
   zoneMonth?: ZonePeriodSummary[];
   warnings: string[];
@@ -88,6 +90,6 @@ export type MarketReport = {
 export type LoadMarketInput = {
   startDate: string;
   endDate: string;
-  /** spot = швидкий шар (РДН); full = повний звіт */
+  /** spot = лише spot+UA (швидко); full = + ф’ючерси */
   phase?: "spot" | "full";
 };
