@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { ZONES, type Zone, type ZoneId, isoWeekMaturity } from "./zones";
+import { ZONES, type Zone, type ZoneId, isoWeekMaturity, monthMaturity } from "./zones";
 import type { CellQuote, DailyEuUa, DecadeSummary, MarketReport } from "./market-types";
 import { enumerateDates, addDaysIso, isoToday } from "./utils";
 import {
@@ -8,7 +8,6 @@ import {
   mapPool,
   lastPoint,
   lastPointBefore,
-  pointOnDate,
   fetchDayContract,
   fetchWeekContract,
   fetchWeekendContract,
@@ -33,7 +32,11 @@ function isoDateRe(value: unknown): value is string {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
-function parseInput(data: unknown): { startDate: string; endDate: string } {
+function parseInput(data: unknown): {
+  startDate: string;
+  endDate: string;
+  phase: "spot" | "full";
+} {
   if (!data || typeof data !== "object") throw new Error("Некоректний запит");
   const rec = data as Record<string, unknown>;
   if (!isoDateRe(rec.startDate) || !isoDateRe(rec.endDate)) {
@@ -43,7 +46,8 @@ function parseInput(data: unknown): { startDate: string; endDate: string } {
   const dates = enumerateDates(rec.startDate, rec.endDate);
   if (dates.length === 0) throw new Error("Порожній період");
   if (dates.length > 62) throw new Error("Максимум 62 дні за один запит");
-  return { startDate: rec.startDate, endDate: rec.endDate };
+  const phase = rec.phase === "spot" ? "spot" : "full";
+  return { startDate: rec.startDate, endDate: rec.endDate, phase };
 }
 
 function emptyCell(): CellQuote {
@@ -68,10 +72,150 @@ function emptyCell(): CellQuote {
   };
 }
 
-/**
- * Build report rows for a date range by hitting live APIs.
- * Used only for dates not yet solid in the local/Neon cache.
- */
+function buildEuUa(
+  dates: string[],
+  rows: MarketReport["rows"],
+  uaUah: Record<string, number>,
+  euUaCache: Map<string, DailyEuUa>,
+  eurUah: number,
+): DailyEuUa[] {
+  return dates.map((date) => {
+    const cached = euUaCache.get(date);
+    const zonePrices: number[] = [];
+    for (const z of ZONES) {
+      const px = rows[date]?.[z.id]?.spot;
+      if (px !== null && px !== undefined) zonePrices.push(px);
+    }
+    const euAvg = mean(zonePrices) ?? cached?.euAvg ?? null;
+    const uaUahPx = uaUah[date] ?? cached?.uaRdnUah ?? null;
+    const uaRdnEur =
+      uaUahPx !== null && eurUah > 0
+        ? Math.round((uaUahPx / eurUah) * 100) / 100
+        : (cached?.uaRdnEur ?? null);
+    let deltaPct: number | null = null;
+    if (uaRdnEur !== null && euAvg !== null && euAvg !== 0) {
+      deltaPct = Math.round(((uaRdnEur - euAvg) / euAvg) * 10000) / 100;
+    }
+    return {
+      date,
+      euAvg,
+      uaRdnEur,
+      uaRdnUah: uaUahPx,
+      deltaPct,
+      eurUah: cached?.eurUah ?? eurUah,
+    };
+  });
+}
+
+function buildDecades(
+  dates: string[],
+  rows: MarketReport["rows"],
+  euUa: DailyEuUa[],
+  eurUah: number,
+): DecadeSummary[] {
+  const decadeKeys = new Map<string, { start: string; end: string; label: string }>();
+  for (const d of dates) {
+    const b = decadeBounds(d);
+    decadeKeys.set(b.label, b);
+  }
+  return [...decadeKeys.values()].map((b) => {
+    const spots: number[] = [];
+    const days: number[] = [];
+    const weeks: number[] = [];
+    const weekends: number[] = [];
+    const uaEur: number[] = [];
+    const uaUahVals: number[] = [];
+    for (const d of dates) {
+      if (d < b.start || d > b.end) continue;
+      const euRow = euUa.find((x) => x.date === d);
+      if (euRow?.euAvg != null) spots.push(euRow.euAvg);
+      if (euRow?.uaRdnEur != null) uaEur.push(euRow.uaRdnEur);
+      if (euRow?.uaRdnUah != null) uaUahVals.push(euRow.uaRdnUah);
+      const dayVals: number[] = [];
+      const weekVals: number[] = [];
+      const weVals: number[] = [];
+      for (const z of ZONES) {
+        const c = rows[d]?.[z.id];
+        if (!c) continue;
+        if (c.dayFutures !== null) dayVals.push(c.dayFutures);
+        if (c.weekFutures !== null) weekVals.push(c.weekFutures);
+        if (c.weekendFutures !== null) weVals.push(c.weekendFutures);
+      }
+      const dm = mean(dayVals);
+      const wm = mean(weekVals);
+      const wem = mean(weVals);
+      if (dm !== null) days.push(dm);
+      if (wm !== null) weeks.push(wm);
+      if (wem !== null) weekends.push(wem);
+    }
+    const euAvgEur = mean(spots);
+    const dayAvg = mean(days);
+    const weekAvg = mean(weeks);
+    const weekendAvg = mean(weekends);
+    const uaRdnAvgEur = mean(uaEur);
+    const uaRdnAvgUah = mean(uaUahVals);
+    const dDay = delta(dayAvg, euAvgEur);
+    const dWeek = delta(weekAvg, euAvgEur);
+    const disc = (pct: number) =>
+      euAvgEur === null ? null : Math.round(euAvgEur * (1 - pct / 100) * 100) / 100;
+    const toUah = (eur: number | null) =>
+      eur === null ? null : Math.round(eur * eurUah * 100) / 100;
+    return {
+      label: b.label,
+      periodStart: b.start,
+      periodEnd: b.end,
+      euAvgEur,
+      dayAvgEur: dayAvg,
+      weekAvgEur: weekAvg,
+      weekendAvgEur: weekendAvg,
+      uaRdnAvgEur,
+      uaRdnAvgUah,
+      dayDeltaEur: dDay.eur,
+      dayDeltaPct: dDay.pct,
+      weekDeltaEur: dWeek.eur,
+      weekDeltaPct: dWeek.pct,
+      disc30Eur: disc(30),
+      disc20Eur: disc(20),
+      disc10Eur: disc(10),
+      disc30Uah: toUah(disc(30)),
+      disc20Uah: toUah(disc(20)),
+      disc10Uah: toUah(disc(10)),
+      eurUah,
+    };
+  });
+}
+
+/** Лише Spot + UA — швидко, для першої візуалізації */
+async function fetchSpotOnly(
+  dates: string[],
+  warnings: string[],
+): Promise<{
+  rows: Record<string, Record<ZoneId, CellQuote>>;
+  uaUah: Record<string, number>;
+  eurUah: number;
+}> {
+  if (!dates.length) return { rows: {}, uaUah: {}, eurUah: 46.5 };
+  const startDate = dates[0]!;
+  const endDate = dates[dates.length - 1]!;
+  const today = isoToday();
+  fetchCache.clear();
+  const { spot, uaUah } = await fetchSpot(startDate, endDate);
+  const fxDate = endDate <= today ? endDate : startDate;
+  const eurUah = await fetchEurUah(fxDate);
+  const rows: Record<string, Record<ZoneId, CellQuote>> = {};
+  let spotHits = 0;
+  for (const date of dates) {
+    rows[date] = {} as Record<ZoneId, CellQuote>;
+    for (const zone of ZONES) {
+      const spotPx = spot[date]?.[zone.id] ?? null;
+      if (spotPx !== null) spotHits += 1;
+      rows[date][zone.id] = { ...emptyCell(), spot: spotPx };
+    }
+  }
+  warnings.push(`Spot-фаза: ${spotHits} значень spot по зонах/днях (ф’ючерси підвантажаться далі).`);
+  return { rows, uaUah, eurUah };
+}
+
 async function fetchLiveRange(
   fetchDates: string[],
   warnings: string[],
@@ -94,6 +238,7 @@ async function fetchLiveRange(
     for (const date of fetchDates) dayJobs.push({ zone, date });
   }
 
+  // Spot завжди першим (паралельно з day можна, але spot критичний)
   const { spot, uaUah } = await fetchSpot(startDate, endDate);
 
   let daySeries = await mapPool(dayJobs, 6, async (job) => ({
@@ -123,23 +268,21 @@ async function fetchLiveRange(
 
   const fxDate = endDate <= today ? endDate : startDate;
 
-  const monthSeries: EexPoint[][] = await mapPool(ZONES, 4, (z) =>
-    fetchMonthContract(z, startDate, endDate),
-  );
-  const emptyMonthIdx = monthSeries
-    .map((pts, i) => (pts.length === 0 ? i : -1))
+  const monthMaps = await mapPool(ZONES, 4, (z) => fetchMonthContract(z, startDate, endDate));
+  const emptyMonthIdx = monthMaps
+    .map((m, i) => (m.size === 0 ? i : -1))
     .filter((i) => i >= 0);
   if (emptyMonthIdx.length) {
     await sleep(1_000);
     const retriedMonth = await mapPool(emptyMonthIdx, 3, (i) =>
-      fetchMonthContract(ZONES[i], startDate, endDate),
+      fetchMonthContract(ZONES[i]!, startDate, endDate),
     );
     emptyMonthIdx.forEach((i, idx) => {
-      monthSeries[i] = retriedMonth[idx];
+      monthMaps[i] = retriedMonth[idx]!;
     });
   }
 
-  const [weekSeries, weekendSeries, eurUah] = await Promise.all([
+  const [weekMaps, weekendMaps, eurUah] = await Promise.all([
     mapPool(ZONES, 4, (z) => fetchWeekContract(z, startDate, endDate)),
     mapPool(ZONES, 4, (z) => fetchWeekendContract(z, startDate, endDate)),
     fetchEurUah(fxDate),
@@ -148,21 +291,28 @@ async function fetchLiveRange(
   const emptyDays = daySeries.filter((s) => s.points.length === 0).length;
   if (emptyDays > 0) {
     warnings.push(
-      `Day: ${emptyDays}/${dayJobs.length} без settlement (forward-fill / кеш заповнить прогалини).`,
+      `Day: ${emptyDays}/${dayJobs.length} без settlement (forward-fill / кеш).`,
     );
   }
 
-  const monthByZone: Record<ZoneId, EexPoint[]> = {} as Record<ZoneId, EexPoint[]>;
-  const weekByZone: Record<ZoneId, EexPoint[]> = {} as Record<ZoneId, EexPoint[]>;
-  const weekendByZone: Record<ZoneId, EexPoint[]> = {} as Record<ZoneId, EexPoint[]>;
+  const monthByZone: Record<ZoneId, Map<string, EexPoint[]>> = {} as Record<
+    ZoneId,
+    Map<string, EexPoint[]>
+  >;
+  const weekByZone: Record<ZoneId, Map<number, EexPoint[]>> = {} as Record<
+    ZoneId,
+    Map<number, EexPoint[]>
+  >;
+  const weekendByZone: Record<ZoneId, Map<number, EexPoint[]>> = {} as Record<
+    ZoneId,
+    Map<number, EexPoint[]>
+  >;
   ZONES.forEach((z, i) => {
-    monthByZone[z.id] = monthSeries[i];
-    weekByZone[z.id] = weekSeries[i];
-    weekendByZone[z.id] = weekendSeries[i];
-    if (monthSeries[i].length === 0) {
-      warnings.push(
-        `Month ${z.id} (${z.monthCode}): немає settlement у public API — у таблиці буде «—».`,
-      );
+    monthByZone[z.id] = monthMaps[i]!;
+    weekByZone[z.id] = weekMaps[i]!;
+    weekendByZone[z.id] = weekendMaps[i]!;
+    if (monthMaps[i]!.size === 0) {
+      warnings.push(`Month ${z.id} (${z.monthCode}): немає settlement у public API.`);
     }
   });
 
@@ -171,6 +321,8 @@ async function fetchLiveRange(
 
   for (const date of fetchDates) {
     rows[date] = {} as Record<ZoneId, CellQuote>;
+    const matMonth = monthMaturity(date);
+    const matWeek = isoWeekMaturity(date);
     for (const zone of ZONES) {
       const spotPx = spot[date]?.[zone.id] ?? null;
       const dayPts = zone.dayPrefix ? (dayByKey.get(`${zone.id}:${date}`) ?? []) : [];
@@ -178,16 +330,18 @@ async function fetchLiveRange(
         date <= today
           ? lastPointBefore(dayPts, date)
           : lastPoint(dayPts) ?? lastPointBefore(dayPts, date);
-      const weekPt =
-        pointOnDate(weekByZone[zone.id] ?? [], date) ?? lastPoint(weekByZone[zone.id] ?? []);
+
+      // Week/Weekend: last settlement контракту тижня поставки (не tradeDate = day)
+      const weekPts = weekByZone[zone.id]?.get(matWeek) ?? [];
+      const weekendPts = weekendByZone[zone.id]?.get(matWeek) ?? [];
+      const weekPt = lastPointBefore(weekPts, addDaysIso(date, 1)) ?? lastPoint(weekPts);
       const weekendPt =
-        pointOnDate(weekendByZone[zone.id] ?? [], date) ??
-        lastPoint(weekendByZone[zone.id] ?? []);
-      const monthPts = monthByZone[zone.id] ?? [];
+        lastPointBefore(weekendPts, addDaysIso(date, 1)) ?? lastPoint(weekendPts);
+
+      // Month: last settlement maturity місяця поставки (жовтень ← settl з вересня OK)
+      const monthPts = monthByZone[zone.id]?.get(matMonth) ?? [];
       const monthPt =
-        pointOnDate(monthPts, date) ??
-        lastPointBefore(monthPts, addDaysIso(date, 1)) ??
-        lastPoint(monthPts);
+        lastPointBefore(monthPts, addDaysIso(date, 1)) ?? lastPoint(monthPts);
 
       const dayPx = dayPt?.settlPx ?? null;
       const weekPx = weekPt?.settlPx ?? null;
@@ -244,12 +398,20 @@ function applyForwardFills(dates: string[], rows: MarketReport["rows"]) {
     }
   }
 
+  // Month: forward-fill within same calendar month only (одна maturity)
   for (const zone of ZONES) {
     let last: number | null = null;
     let lastTd: string | null = null;
+    let lastMat: string | null = null;
     for (const date of dates) {
       const cell = rows[date]?.[zone.id];
       if (!cell) continue;
+      const mat = monthMaturity(date);
+      if (mat !== lastMat) {
+        last = null;
+        lastTd = null;
+        lastMat = mat;
+      }
       if (cell.monthFutures !== null) {
         last = cell.monthFutures;
         lastTd = cell.monthTradeDate;
@@ -276,8 +438,6 @@ function applyForwardFills(dates: string[], rows: MarketReport["rows"]) {
     if (!byWeek.has(k)) byWeek.set(k, []);
     byWeek.get(k)!.push(d);
   }
-  // Week/Weekend: EEX public часто без settlPx (RO/BG/PL без day-контракту).
-  // Синтез: середнє Day-архіву, інакше середнє Spot по днях тижня / вихідних.
   for (const zone of ZONES) {
     for (const [, weekDates] of byWeek) {
       const dayVals: number[] = [];
@@ -318,9 +478,16 @@ function applyForwardFills(dates: string[], rows: MarketReport["rows"]) {
   for (const zone of ZONES) {
     let lastW: number | null = null;
     let lastWe: number | null = null;
+    let lastWk: string | null = null;
     for (const date of dates) {
       const cell = rows[date]?.[zone.id];
       if (!cell) continue;
+      const wk = isoWeekKey(date);
+      if (wk !== lastWk) {
+        lastW = null;
+        lastWe = null;
+        lastWk = wk;
+      }
       if (cell.weekFutures !== null) lastW = cell.weekFutures;
       else if (lastW !== null) {
         cell.weekFutures = lastW;
@@ -342,34 +509,110 @@ function applyForwardFills(dates: string[], rows: MarketReport["rows"]) {
 export const loadMarket = createServerFn({ method: "POST" })
   .validator((data: unknown) => parseInput(data))
   .handler(async ({ data }): Promise<MarketReport> => {
-    const { startDate, endDate } = data;
+    const { startDate, endDate, phase } = data;
     const dates = enumerateDates(startDate, endDate);
     const warnings: string[] = [];
     const today = isoToday();
 
-    // 1) Читаємо кеш з БД (PGLite preview / Neon production)
     const [zoneCache, euUaCache] = await Promise.all([
       loadCachedZoneQuotes(startDate, endDate),
       loadCachedEuUa(startDate, endDate),
     ]);
 
+    // ——— SPOT PHASE: швидко, без EEX futures ———
+    if (phase === "spot") {
+      const needFetch = datesNeedingFetch(dates, today, zoneCache);
+      let liveRows: Record<string, Record<ZoneId, CellQuote>> = {};
+      let uaUah: Record<string, number> = {};
+      let eurUah = 46.5;
+
+      if (needFetch.length > 0) {
+        const live = await fetchSpotOnly(needFetch, warnings);
+        liveRows = live.rows;
+        uaUah = live.uaUah;
+        eurUah = live.eurUah;
+      } else if (euUaCache.size) {
+        for (const d of dates) {
+          const e = euUaCache.get(d);
+          if (e?.eurUah) {
+            eurUah = e.eurUah;
+            break;
+          }
+        }
+        warnings.push("Spot-фаза: усе з кешу.");
+      }
+
+      const rows: MarketReport["rows"] = {};
+      for (const date of dates) {
+        rows[date] = {} as Record<ZoneId, CellQuote>;
+        for (const zone of ZONES) {
+          const cached = zoneCache.get(date)?.get(zone.id);
+          const live = liveRows[date]?.[zone.id];
+          if (live) {
+            rows[date][zone.id] = fillDeltas({
+              ...emptyCell(),
+              spot: live.spot,
+              dayFutures: cached?.dayFutures ?? null,
+              weekFutures: cached?.weekFutures ?? null,
+              weekendFutures: cached?.weekendFutures ?? null,
+              monthFutures: cached?.monthFutures ?? null,
+              dayTradeDate: cached?.dayTradeDate ?? null,
+              weekTradeDate: cached?.weekTradeDate ?? null,
+              weekendTradeDate: cached?.weekendTradeDate ?? null,
+              monthTradeDate: cached?.monthTradeDate ?? null,
+            });
+          } else if (cached) {
+            rows[date][zone.id] = fillDeltas({ ...cached });
+          } else {
+            rows[date][zone.id] = emptyCell();
+          }
+        }
+      }
+
+      const euUa = buildEuUa(dates, rows, uaUah, euUaCache, eurUah);
+      const toStore: { date: string; zoneId: ZoneId; cell: CellQuote }[] = [];
+      for (const date of dates) {
+        if (date > today) continue;
+        for (const zone of ZONES) {
+          const cell = rows[date]?.[zone.id];
+          if (cell?.spot !== null) toStore.push({ date, zoneId: zone.id, cell });
+        }
+      }
+      await upsertZoneQuotes(toStore);
+      await upsertEuUa(euUa.filter((e) => e.date <= today));
+
+      return {
+        startDate,
+        endDate,
+        fetchedAt: new Date().toISOString(),
+        dates,
+        zones: ZONES.map((z) => z.id),
+        rows,
+        euUa,
+        decades: buildDecades(dates, rows, euUa, eurUah),
+        warnings,
+        sources: {
+          eex: "(spot-фаза — ф’ючерси ще підвантажуються)",
+          spot: "Energy-Charts Day Ahead + кеш",
+          ua: "Energy-Charts UA-IPS + НБУ",
+        },
+      };
+    }
+
+    // ——— FULL PHASE ———
     const needFetch = datesNeedingFetch(dates, today, zoneCache);
     const cachedCount = dates.length - needFetch.length;
-
     if (cachedCount > 0) {
-      warnings.push(
-        `Кеш БД: ${cachedCount}/${dates.length} минулих днів з фактом (spot) — без повторного запиту EEX/Energy-Charts.`,
-      );
+      warnings.push(`Кеш БД: ${cachedCount}/${dates.length} днів зі spot.`);
     }
     if (needFetch.length > 0) {
       warnings.push(
         `Живе оновлення: ${needFetch[0]}…${needFetch[needFetch.length - 1]} (${needFetch.length} дн.).`,
       );
     } else {
-      warnings.push("Увесь період уже в кеші — API не викликався.");
+      warnings.push("Увесь період у кеші — API не викликався.");
     }
 
-    // 2) Живий fetch лише для дат, яких немає / сьогодні+майбутнє
     let liveRows: Record<string, Record<ZoneId, CellQuote>> = {};
     let uaUah: Record<string, number> = {};
     let eurUah = 46.5;
@@ -379,7 +622,6 @@ export const loadMarket = createServerFn({ method: "POST" })
       uaUah = live.uaUah;
       eurUah = live.eurUah;
     } else if (euUaCache.size) {
-      // відновлюємо eurUah з кешу
       for (const d of dates) {
         const e = euUaCache.get(d);
         if (e?.eurUah) {
@@ -389,7 +631,6 @@ export const loadMarket = createServerFn({ method: "POST" })
       }
     }
 
-    // 3) Зливаємо кеш + live
     const rows: MarketReport["rows"] = {};
     for (const date of dates) {
       rows[date] = {} as Record<ZoneId, CellQuote>;
@@ -397,7 +638,6 @@ export const loadMarket = createServerFn({ method: "POST" })
         const cached = zoneCache.get(date)?.get(zone.id);
         const live = liveRows[date]?.[zone.id];
         if (live) {
-          // live виграє для дат, які ми спеціально оновлювали
           rows[date][zone.id] = fillDeltas({ ...live });
         } else if (cached) {
           rows[date][zone.id] = fillDeltas({ ...cached });
@@ -407,25 +647,21 @@ export const loadMarket = createServerFn({ method: "POST" })
       }
     }
 
-    // 4) Forward-fill + week/weekend synthesis
     applyForwardFills(dates, rows);
 
-    // 5) Gap-pass: минулі дні без spot — ще одна спроба live лише для них
     const stillMissing = dates.filter((d) => {
       if (d >= today) return false;
       return ZONES.some((z) => rows[d]?.[z.id]?.spot === null);
     });
     if (stillMissing.length > 0 && stillMissing.length <= 20) {
-      warnings.push(
-        `Дозаповнення прогалин: ${stillMissing.length} днів без spot — повторний запит.`,
-      );
+      warnings.push(`Дозаповнення spot: ${stillMissing.length} днів.`);
       await sleep(1_000);
       const gap = await fetchLiveRange(stillMissing, warnings);
       for (const d of stillMissing) {
         for (const z of ZONES) {
           const g = gap.rows[d]?.[z.id];
           if (!g) continue;
-          const cell = rows[d][z.id];
+          const cell = rows[d]![z.id]!;
           if (g.spot !== null) cell.spot = g.spot;
           if (g.dayFutures !== null) {
             cell.dayFutures = g.dayFutures;
@@ -437,7 +673,7 @@ export const loadMarket = createServerFn({ method: "POST" })
             cell.monthFutures = g.monthFutures;
             cell.monthTradeDate = g.monthTradeDate;
           }
-          rows[d][z.id] = fillDeltas(cell);
+          rows[d]![z.id] = fillDeltas(cell);
         }
         Object.assign(uaUah, gap.uaUah);
         if (gap.eurUah) eurUah = gap.eurUah;
@@ -445,46 +681,15 @@ export const loadMarket = createServerFn({ method: "POST" })
       applyForwardFills(dates, rows);
     }
 
-    // 6) EU / UA
-    const euUa: DailyEuUa[] = dates.map((date) => {
-      const cached = euUaCache.get(date);
-      const zonePrices: number[] = [];
-      for (const z of ZONES) {
-        const px = rows[date]?.[z.id]?.spot;
-        if (px !== null && px !== undefined) zonePrices.push(px);
-      }
-      const euAvg = mean(zonePrices) ?? cached?.euAvg ?? null;
-      const uaUahPx = uaUah[date] ?? cached?.uaRdnUah ?? null;
-      const uaRdnEur =
-        uaUahPx !== null && eurUah > 0
-          ? Math.round((uaUahPx / eurUah) * 100) / 100
-          : (cached?.uaRdnEur ?? null);
-      let deltaPct: number | null = null;
-      if (uaRdnEur !== null && euAvg !== null && euAvg !== 0) {
-        deltaPct = Math.round(((uaRdnEur - euAvg) / euAvg) * 10000) / 100;
-      }
-      return {
-        date,
-        euAvg,
-        uaRdnEur,
-        uaRdnUah: uaUahPx,
-        deltaPct,
-        eurUah: cached?.eurUah ?? eurUah,
-      };
-    });
+    const euUa = buildEuUa(dates, rows, uaUah, euUaCache, eurUah);
 
-    // 7) Зберігаємо в БД усе, що має хоч якийсь факт (минулі + сьогодні)
     const toStore: { date: string; zoneId: ZoneId; cell: CellQuote }[] = [];
     for (const date of dates) {
-      if (date > today) continue; // майбутнє не фіксуємо як факт
+      if (date > today) continue;
       for (const zone of ZONES) {
         const cell = rows[date]?.[zone.id];
         if (!cell) continue;
-        if (
-          cell.spot !== null ||
-          cell.dayFutures !== null ||
-          cell.monthFutures !== null
-        ) {
+        if (cell.spot !== null || cell.dayFutures !== null || cell.monthFutures !== null) {
           toStore.push({ date, zoneId: zone.id, cell });
         }
       }
@@ -492,73 +697,7 @@ export const loadMarket = createServerFn({ method: "POST" })
     await upsertZoneQuotes(toStore);
     await upsertEuUa(euUa.filter((e) => e.date <= today));
 
-    // 8) Декади
-    const decadeKeys = new Map<string, { start: string; end: string; label: string }>();
-    for (const d of dates) {
-      const b = decadeBounds(d);
-      decadeKeys.set(b.label, b);
-    }
-    const decades: DecadeSummary[] = [...decadeKeys.values()].map((b) => {
-      const spots: number[] = [];
-      const days: number[] = [];
-      const weeks: number[] = [];
-      const weekends: number[] = [];
-      for (const d of dates) {
-        if (d < b.start || d > b.end) continue;
-        const eu = euUa.find((x) => x.date === d)?.euAvg;
-        if (eu !== null && eu !== undefined) spots.push(eu);
-        const dayVals: number[] = [];
-        const weekVals: number[] = [];
-        const weVals: number[] = [];
-        for (const z of ZONES) {
-          const c = rows[d]?.[z.id];
-          if (!c) continue;
-          if (c.dayFutures !== null) dayVals.push(c.dayFutures);
-          if (c.weekFutures !== null) weekVals.push(c.weekFutures);
-          if (c.weekendFutures !== null) weVals.push(c.weekendFutures);
-        }
-        const dm = mean(dayVals);
-        const wm = mean(weekVals);
-        const wem = mean(weVals);
-        if (dm !== null) days.push(dm);
-        if (wm !== null) weeks.push(wm);
-        if (wem !== null) weekends.push(wem);
-      }
-      const euAvgEur = mean(spots);
-      const dayAvg = mean(days);
-      const weekAvg = mean(weeks);
-      const weekendAvg = mean(weekends);
-      const dDay = delta(dayAvg, euAvgEur);
-      const dWeek = delta(weekAvg, euAvgEur);
-      const disc = (pct: number) =>
-        euAvgEur === null ? null : Math.round(euAvgEur * (1 - pct / 100) * 100) / 100;
-      const toUah = (eur: number | null) =>
-        eur === null ? null : Math.round(eur * eurUah * 100) / 100;
-      return {
-        label: b.label,
-        periodStart: b.start,
-        periodEnd: b.end,
-        euAvgEur,
-        dayAvgEur: dayAvg,
-        weekAvgEur: weekAvg,
-        weekendAvgEur: weekendAvg,
-        dayDeltaEur: dDay.eur,
-        dayDeltaPct: dDay.pct,
-        weekDeltaEur: dWeek.eur,
-        weekDeltaPct: dWeek.pct,
-        disc30Eur: disc(30),
-        disc20Eur: disc(20),
-        disc10Eur: disc(10),
-        disc30Uah: toUah(disc(30)),
-        disc20Uah: toUah(disc(20)),
-        disc10Uah: toUah(disc(10)),
-        eurUah,
-      };
-    });
-
-    warnings.push(
-      "Week/Weekend: де можливо — EEX; інакше середнє Day-архіву.",
-    );
+    warnings.push("Month/Week: прив’язка до maturity поставки (не до trade date осі)." );
 
     return {
       startDate,
@@ -568,10 +707,10 @@ export const loadMarket = createServerFn({ method: "POST" })
       zones: ZONES.map((z) => z.id),
       rows,
       euUa,
-      decades,
+      decades: buildDecades(dates, rows, euUa, eurUah),
       warnings,
       sources: {
-        eex: "EEX + локальний кеш БД (минулі дні без повторного запиту)",
+        eex: "EEX + кеш (month/week by delivery maturity)",
         spot: "Energy-Charts Day Ahead + кеш",
         ua: "Energy-Charts UA-IPS (UAH) → EUR (НБУ) + кеш",
       },
