@@ -6,7 +6,6 @@ import {
   type Zone,
   type ZoneId,
 } from "./zones";
-import type { CellQuote, DailyEuUa, DecadeSummary, MarketReport } from "./market-types";
 import { enumerateDates, addDaysIso, isoToday } from "./utils";
 
 const EEX_TABLE = "https://api.eex-group.com/pub/market-data/table-data";
@@ -29,27 +28,10 @@ function isoDateRe(value: unknown): value is string {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
-function parseInput(data: unknown): { startDate: string; endDate: string } {
-  if (!data || typeof data !== "object") throw new Error("Некоректний запит");
-  const rec = data as Record<string, unknown>;
-  if (!isoDateRe(rec.startDate) || !isoDateRe(rec.endDate)) {
-    throw new Error("Дати мають бути у форматі YYYY-MM-DD");
-  }
-  if (rec.startDate > rec.endDate) throw new Error("Початкова дата пізніша за кінцеву");
-  const dates = enumerateDates(rec.startDate, rec.endDate);
-  if (dates.length === 0) throw new Error("Порожній період");
-  if (dates.length > 62) throw new Error("Максимум 62 дні за один запит");
-  return { startDate: rec.startDate, endDate: rec.endDate };
-}
-
 export async function sleep(ms: number) {
   await new Promise((r) => setTimeout(r, ms));
 }
 
-/**
- * In-request URL cache. Empty EEX tables are NOT cached — otherwise the first
- * rate-limited empty response poisons all later retries of the same URL.
- */
 export const fetchCache = new Map<string, Promise<unknown>>();
 
 function isEexTableUrl(url: string): boolean {
@@ -66,7 +48,6 @@ function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
   const cacheKey = init?.method && init.method !== "GET" ? null : url;
   if (cacheKey && fetchCache.has(cacheKey)) return fetchCache.get(cacheKey)!;
   const p = fetchJsonUncached(url, init).then((raw) => {
-    // Do not keep empty EEX responses in cache — allow retries to re-hit the API
     if (cacheKey && isEexTableUrl(url) && !eexTableHasRows(raw)) {
       fetchCache.delete(cacheKey);
     }
@@ -79,7 +60,6 @@ function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
   return p;
 }
 
-/** 3 attempts, long timeouts — EEX public API throttles parallel clients. */
 async function fetchJsonUncached(url: string, init?: RequestInit): Promise<unknown> {
   let lastErr: unknown;
   const timeouts = [30_000, 45_000, 60_000];
@@ -150,10 +130,6 @@ export function lastPoint(points: EexPoint[]): EexPoint | null {
   return points.length ? points[points.length - 1] : null;
 }
 
-/**
- * Архів day-futures: останній settlement СТРОГО ДО дня поставки.
- * Не беремо settlement у день поставки (часто = spot).
- */
 export function lastPointBefore(points: EexPoint[], deliveryDate: string): EexPoint | null {
   for (let i = points.length - 1; i >= 0; i--) {
     if (points[i].tradeDate < deliveryDate) return points[i];
@@ -168,16 +144,10 @@ export function pointOnDate(points: EexPoint[], date: string): EexPoint | null {
   return null;
 }
 
-/**
- * Day-контракт: тягнемо історію з 1-го числа,
- * але endDate = день ПЕРЕД поставкою (якщо поставка вже настала / сьогодні),
- * щоб не підтягнути фінальний settlement = spot.
- */
 export async function fetchDayContract(zone: Zone, deliveryDate: string): Promise<EexPoint[]> {
   if (!zone.dayPrefix) return [];
   const shortCode = dayShortCode(zone.dayPrefix, deliveryDate);
   const maturity = monthMaturity(deliveryDate);
-  // Ширше вікно історії — ранні дні місяця інакше часто порожні
   const monthStart = deliveryDate.slice(0, 8) + "01";
   const histStart = addDaysIso(monthStart, -28);
   const tryOnce = async (isRolling: string): Promise<EexPoint[]> => {
@@ -206,7 +176,6 @@ export async function fetchDayContract(zone: Zone, deliveryDate: string): Promis
   return tryOnce("true");
 }
 
-/** Calendar week codes: shortCode=DEB, maturity=202637 */
 async function fetchCalendarMaturitySeries(
   shortCode: string,
   area: string,
@@ -215,6 +184,10 @@ async function fetchCalendarMaturitySeries(
   startDate: string,
   endDate: string,
 ): Promise<EexPoint[]> {
+  // Історія торгів ширша за вікно поставки: котирування week з’являються заздалегідь
+  const histStart = addDaysIso(startDate, -45);
+  const today = isoToday();
+  const histEnd = endDate > today ? endDate : today;
   const params = new URLSearchParams({
     shortCode,
     commodity: "POWER",
@@ -222,8 +195,8 @@ async function fetchCalendarMaturitySeries(
     area,
     product: "Base",
     maturity: String(maturity),
-    startDate,
-    endDate,
+    startDate: histStart,
+    endDate: histEnd,
     maturityType,
     isRolling: "false",
   });
@@ -235,67 +208,70 @@ async function fetchCalendarMaturitySeries(
   }
 }
 
+/** Week: Map maturity YYYYWW → settlements (прив’язка до тижня поставки) */
 export async function fetchWeekContract(
   zone: Zone,
   startDate: string,
   endDate: string,
-): Promise<EexPoint[]> {
-  if (!zone.weekCode) return [];
-  const mats = [
-    ...new Set(enumerateDates(startDate, endDate).map((d) => isoWeekMaturity(d))),
-  ];
-  const chunks = await Promise.all(
-    mats.map((m) =>
-      fetchCalendarMaturitySeries(zone.weekCode!, zone.eexArea, "Week", m, startDate, endDate),
-    ),
-  );
-  const byDate = new Map<string, EexPoint>();
-  for (const pts of chunks) {
-    for (const p of pts) byDate.set(p.tradeDate, p);
+): Promise<Map<number, EexPoint[]>> {
+  const out = new Map<number, EexPoint[]>();
+  if (!zone.weekCode) return out;
+  const mats = [...new Set(enumerateDates(startDate, endDate).map((d) => isoWeekMaturity(d)))];
+  for (const m of mats) {
+    const pts = await fetchCalendarMaturitySeries(
+      zone.weekCode,
+      zone.eexArea,
+      "Week",
+      m,
+      startDate,
+      endDate,
+    );
+    if (pts.length) out.set(m, pts);
   }
-  return [...byDate.values()].sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
+  return out;
 }
 
+/** Weekend: Map maturity YYYYWW → settlements */
 export async function fetchWeekendContract(
   zone: Zone,
   startDate: string,
   endDate: string,
-): Promise<EexPoint[]> {
-  if (!zone.weekendCode) return [];
-  const mats = [
-    ...new Set(enumerateDates(startDate, endDate).map((d) => isoWeekMaturity(d))),
-  ];
-  const chunks = await Promise.all(
-    mats.map((m) =>
-      fetchCalendarMaturitySeries(
-        zone.weekendCode!,
-        zone.eexArea,
-        "Weekend",
-        m,
-        startDate,
-        endDate,
-      ),
-    ),
-  );
-  const byDate = new Map<string, EexPoint>();
-  for (const pts of chunks) {
-    for (const p of pts) byDate.set(p.tradeDate, p);
+): Promise<Map<number, EexPoint[]>> {
+  const out = new Map<number, EexPoint[]>();
+  if (!zone.weekendCode) return out;
+  const mats = [...new Set(enumerateDates(startDate, endDate).map((d) => isoWeekMaturity(d)))];
+  for (const m of mats) {
+    const pts = await fetchCalendarMaturitySeries(
+      zone.weekendCode,
+      zone.eexArea,
+      "Weekend",
+      m,
+      startDate,
+      endDate,
+    );
+    if (pts.length) out.set(m, pts);
   }
-  return [...byDate.values()].sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
+  return out;
 }
 
+/**
+ * Month: Map maturity YYYYMM → settlements.
+ * Ціна жовтневого контракту (maturity 202610) може бути з вересня —
+ * на графіку жовтня беремо last settlement цього maturity, не «торгівельний день = день осі».
+ */
 export async function fetchMonthContract(
   zone: Zone,
   startDate: string,
   endDate: string,
-): Promise<EexPoint[]> {
-  const mats = [
-    ...new Set(enumerateDates(startDate, endDate).map((d) => monthMaturity(d))),
-  ];
-  // Довга історія — month quotes з’являються заздалегідь; API їх віддає
-  const histStart = addDaysIso(startDate, -120);
-  const histEnd = endDate;
-  const chunks: EexPoint[][] = [];
+): Promise<Map<string, EexPoint[]>> {
+  const out = new Map<string, EexPoint[]>();
+  const mats = [...new Set(enumerateDates(startDate, endDate).map((d) => monthMaturity(d)))];
+  const histStart = addDaysIso(startDate, -180);
+  const today = isoToday();
+  // Тягнемо історію торгів до max(end, today), щоб вересневі settl для жовтня потрапили
+  const histEnd = endDate > today ? endDate : today > endDate ? today : endDate;
+  const histEndFinal = histEnd < startDate ? startDate : histEnd;
+
   for (const maturity of mats) {
     const tryMode = async (isRolling: string) => {
       const params = new URLSearchParams({
@@ -306,7 +282,7 @@ export async function fetchMonthContract(
         product: "Base",
         maturity,
         startDate: histStart,
-        endDate: histEnd,
+        endDate: histEndFinal,
         maturityType: "Month",
         isRolling,
       });
@@ -317,7 +293,6 @@ export async function fetchMonthContract(
         return [] as EexPoint[];
       }
     };
-    // Послідовно: calendar → rolling → пауза → повтор (не паралельно — rate-limit)
     let pts = await tryMode("false");
     if (!pts.length) {
       await sleep(400);
@@ -331,13 +306,9 @@ export async function fetchMonthContract(
         pts = await tryMode("true");
       }
     }
-    if (pts.length) chunks.push(pts);
+    if (pts.length) out.set(maturity, pts);
   }
-  const byDate = new Map<string, EexPoint>();
-  for (const pts of chunks) {
-    for (const p of pts) byDate.set(p.tradeDate, p);
-  }
-  return [...byDate.values()].sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
+  return out;
 }
 
 type SpotMap = Record<string, Partial<Record<ZoneId | "UA", number>>>;
@@ -462,4 +433,3 @@ export function decadeBounds(isoDate: string): { start: string; end: string; lab
   const endDay = String(lastDay).padStart(2, "0");
   return { start: `${y}-${m}-21`, end: `${y}-${m}-${endDay}`, label: `21–${endDay} ${m}.${y}` };
 }
-
