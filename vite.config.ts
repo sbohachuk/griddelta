@@ -30,6 +30,43 @@ function hasGlobbedMigrations(root: string): boolean {
  * migrations — no schema to apply — skips it entirely rather than paying for a
  * PGLite instance it never queries.
  */
+/** Dev-server live Import/Export API (Google Sheets). */
+function importExportApiPlugin(): Plugin {
+  return {
+    name: "griddelta:import-export-api",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        const url = req.url || "";
+        if (!url.startsWith("/api/import-export")) return next();
+        try {
+          const u = new URL(url, "http://localhost");
+          const d1 = u.searchParams.get("d1") || undefined;
+          const d2 = u.searchParams.get("d2") || undefined;
+          const refresh = u.searchParams.get("refresh") === "1";
+          const mod = (await server.ssrLoadModule(
+            "/src/lib/import-export/sheets-live.ts",
+          )) as {
+            loadAllDirections: (force?: boolean) => Promise<unknown>;
+            buildSnapshot: (d1?: string, d2?: string) => Promise<unknown>;
+          };
+          if (refresh) await mod.loadAllDirections(true);
+          const data = await mod.buildSnapshot(d1, d2);
+          res.statusCode = 200;
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          res.setHeader("Cache-Control", "public, max-age=60");
+          res.end(JSON.stringify(data));
+        } catch (err) {
+          console.error("[api/import-export]", err);
+          res.statusCode = 502;
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          res.end(JSON.stringify({ error: String(err) }));
+        }
+      });
+    },
+  };
+}
+
 function pgliteBootstrapPlugin(): Plugin {
   return {
     name: "app-builder:pglite-bootstrap",
@@ -158,6 +195,7 @@ export default defineConfig(({ command, isPreview }) => ({
   },
   resolve: { tsconfigPaths: true },
   plugins: [
+    importExportApiPlugin(),
     pgliteBootstrapPlugin(),
     // Before tanstackStart so /auth/popup never falls through to the SPA.
     authPopupPlugin(),

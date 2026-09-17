@@ -59,6 +59,20 @@
   </div>
 </div>
 
+
+<div class="card" style="padding:12px 16px;margin-bottom:14px;display:flex;flex-wrap:wrap;align-items:end;gap:12px">
+  <div>
+    <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em">День А (базовий)</div>
+    <select id="dateA"></select>
+  </div>
+  <div>
+    <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em">День Б (порівняння)</div>
+    <select id="dateB"></select>
+  </div>
+  <button type="button" id="btnSwap" style="background:#0b1220;border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:#93c5fd;font-size:12px;cursor:pointer">⇄ Поміняти</button>
+  <button type="button" id="btnRefresh" style="background:#1e3a5f;border:1px solid #243047;border-radius:8px;padding:6px 12px;color:#93c5fd;font-size:12px;cursor:pointer;font-weight:600">↻ Оновити з Sheets</button>
+  <div style="font-size:11px;color:var(--muted);margin-left:auto" id="liveStatus">Live · Google Sheets</div>
+</div>
 <div style="display:flex;gap:4px;margin-bottom:14px;flex-wrap:wrap">
   <button class="tab active" data-tab="overview">Огляд + Δ дня</button>
   <button class="tab" data-tab="hourly">Погодинка Δ</button>
@@ -548,21 +562,68 @@ function renderWinners(){
     </div>`;
 }
 
-async function boot(){
+async function boot(d1, d2, refresh){
+  const st = document.getElementById("liveStatus");
   try {
-    const res = await fetch("/import-export-data.json", { cache: "no-store" });
-    if (!res.ok) throw new Error("HTTP " + res.status + " — немає public/import-export-data.json");
+    if (st) st.textContent = "Завантаження з Google Sheets…";
+    const qs = new URLSearchParams();
+    if (d1) qs.set("d1", d1);
+    if (d2) qs.set("d2", d2);
+    if (refresh) qs.set("refresh", "1");
+    const res = await fetch("/api/import-export?" + qs.toString(), { cache: "no-store" });
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error("HTTP " + res.status + " " + t.slice(0, 200));
+    }
     DATA = await res.json();
+    if (DATA.error) throw new Error(DATA.error);
     if (!DATA?.meta?.directions?.length) throw new Error("Порожній знімок");
+
+    const dates = DATA.meta.available_dates || [];
+    const selA = document.getElementById("dateA");
+    const selB = document.getElementById("dateB");
+    if (selA && selB) {
+      const curA = DATA.meta.d1, curB = DATA.meta.d2;
+      selA.innerHTML = dates.map(d => `<option value="${d}" ${d===curA?"selected":""}>${d}</option>`).join("");
+      selB.innerHTML = dates.map(d => `<option value="${d}" ${d===curB?"selected":""}>${d}</option>`).join("");
+    }
+    if (st) {
+      const t = DATA.meta.fetched_at ? new Date(DATA.meta.fetched_at).toLocaleTimeString("uk-UA") : "—";
+      st.textContent = "Live · Sheets · оновлено " + t + " · " + (DATA.meta.n_days||"?") + " днів";
+    }
+
+    // destroy old charts before re-render
+    ["stack","flow","hourly","delta"].forEach(k => { try { destroy(k); } catch(e){} });
+    renderOverview();
+    renderHourly();
+    renderDaily();
+    renderWinners();
   } catch(e) {
-    document.body.innerHTML = '<div style="padding:40px;color:#f87171;font-family:system-ui">Не вдалося завантажити дані: '+e+'</div>';
-    return;
+    if (st) st.textContent = "Помилка: " + e;
+    console.error(e);
+    document.body.insertAdjacentHTML("afterbegin",
+      '<div style="padding:16px;margin:12px;background:#3f1d1d;color:#f87171;border-radius:10px;font-family:system-ui">Не вдалося завантажити live-дані: '+String(e)+
+      '<br/><button onclick="boot()" style="margin-top:8px;padding:6px 12px;cursor:pointer">Повторити</button></div>');
   }
-  renderOverview();
-  renderHourly();
-  renderDaily();
-  renderWinners();
 }
+
+function wireDatePickers(){
+  const selA = document.getElementById("dateA");
+  const selB = document.getElementById("dateB");
+  const go = () => boot(selA.value, selB.value, false);
+  if (selA) selA.onchange = go;
+  if (selB) selB.onchange = go;
+  const swap = document.getElementById("btnSwap");
+  if (swap) swap.onclick = () => {
+    const a = selA.value, b = selB.value;
+    selA.value = b; selB.value = a;
+    boot(selA.value, selB.value, false);
+  };
+  const ref = document.getElementById("btnRefresh");
+  if (ref) ref.onclick = () => boot(selA?.value, selB?.value, true);
+}
+
+wireDatePickers();
 boot();
 </script>
 </body>

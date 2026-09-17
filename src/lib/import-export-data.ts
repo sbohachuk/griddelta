@@ -1,4 +1,4 @@
-/** Import/export data loader — snapshot from Google Sheets (public/import-export-data.json). */
+/** Import/export — live Google Sheets via /api/import-export */
 
 export type Delta = { abs?: number | null; pct?: number | null };
 
@@ -14,11 +14,6 @@ export type CompareItem = {
   cov1?: number | null;
   cov2?: number | null;
   side?: "import" | "export" | string;
-  // legacy simplified fields (fallback)
-  oc?: number | null;
-  rps?: number | null;
-  price?: number | null;
-  coverage?: number | null;
 };
 
 export type IEData = {
@@ -28,6 +23,9 @@ export type IEData = {
     directions: string[];
     range?: string | string[];
     n_days?: number;
+    available_dates?: string[];
+    source?: string;
+    fetched_at?: string;
   };
   flow?: {
     d1?: { imp_oc?: number; exp_oc?: number; imp_rps?: number; exp_rps?: number };
@@ -35,40 +33,33 @@ export type IEData = {
     delta?: Record<string, Delta>;
   };
   compare: Record<string, CompareItem>;
-  day_totals?: Array<{
-    date: string;
-    oc?: number;
-    rps?: number;
-    imp_oc?: number;
-    exp_oc?: number;
-    imp_rps?: number;
-    exp_rps?: number;
-    directions?: Record<string, { oc?: number; rps?: number; coverage?: number }>;
-  }>;
-  hourly: {
-    d1?: Record<string, unknown>;
-    d2?: Record<string, unknown>;
-  };
+  day_totals?: Array<Record<string, unknown>>;
+  hourly: { d1?: Record<string, unknown>; d2?: Record<string, unknown> };
   winners_cmp: Array<{
     company: string;
     v1?: number;
     v2?: number;
-    vol?: number;
     d?: Delta;
   }>;
 };
 
-export async function loadImportExportData(): Promise<IEData> {
-  const res = await fetch("/import-export-data.json", { cache: "no-store" });
+export async function loadImportExportData(
+  d1?: string,
+  d2?: string,
+  refresh = false,
+): Promise<IEData> {
+  const qs = new URLSearchParams();
+  if (d1) qs.set("d1", d1);
+  if (d2) qs.set("d2", d2);
+  if (refresh) qs.set("refresh", "1");
+  const res = await fetch("/api/import-export?" + qs.toString(), { cache: "no-store" });
   if (!res.ok) {
-    throw new Error(
-      `Не вдалося завантажити import-export-data.json (HTTP ${res.status}). ` +
-        `Поклади знімок у public/import-export-data.json`,
-    );
+    throw new Error(`API import-export HTTP ${res.status}`);
   }
-  const data = (await res.json()) as IEData;
+  const data = (await res.json()) as IEData & { error?: string };
+  if (data.error) throw new Error(data.error);
   if (!data?.meta?.directions?.length) {
-    throw new Error("JSON знімок порожній або без meta.directions");
+    throw new Error("Порожня відповідь API");
   }
   return data;
 }
