@@ -288,8 +288,210 @@ export function Dashboard() {
           />
         </section>
 
-        {/* rest of dashboard truncated intentionally - use full file */}
-        <p className="text-sm text-muted-foreground">Loading full dashboard…</p>
+        <Card>
+          <CardHeader>
+            <CardTitle>Зона</CardTitle>
+            <CardDescription>
+              Активна зона для таблиць і KPI. На графіку продуктів можна обрати кілька країн
+              (мультивибір). SK, RO, PL, BG — без day-контракту (M).
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              {ZONES.map((z) => (
+                <button
+                  key={z.id}
+                  type="button"
+                  onClick={() => setZone(z.id)}
+                  className={cn(
+                    "h-11 min-w-11 rounded-full border px-3.5 text-sm font-medium transition-colors duration-[var(--motion-quick)]",
+                    zone === z.id
+                      ? "border-foreground bg-foreground text-background"
+                      : "border-border bg-transparent text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {z.id}
+                  {!z.dayPrefix ? <span className="ml-1 text-[10px] opacity-60">M</span> : null}
+                </button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex-row items-end justify-between gap-3">
+            <div>
+              <CardTitle>Продукти · середнє по країнах</CardTitle>
+              <CardDescription>
+                Оберіть одну або кілька країн (без UA). Графік показує середні Spot / Day / Week+WE /
+                Month. Якщо країна одна — додатково UA РДН.
+              </CardDescription>
+            </div>
+            {stats?.avg !== null && stats ? (
+              <Badge variant={stats.avg > 0 ? "up" : stats.avg < 0 ? "down" : "default"}>
+                {formatPct(
+                  report
+                    ? average(
+                        report.dates
+                          .map((d) => report.rows[d]?.[zone]?.dayDeltaPct)
+                          .filter((v): v is number => v !== null && v !== undefined),
+                      )
+                    : null,
+                )}
+              </Badge>
+            ) : null}
+          </CardHeader>
+          <CardContent>
+            {query.isLoading ? (
+              <Skeleton className="h-[280px] w-full rounded-[calc(var(--radius-xl)-8px)]" />
+            ) : report ? (
+              <DeltaChart report={report} zone={zone} />
+            ) : (
+              <p className="text-sm text-muted-foreground">Немає даних для графіка.</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Усі зони · Spot + продукти + UA</CardTitle>
+            <CardDescription>
+              Режим «Продукти»: середні EU Spot / Day / Week+WE / Month + UA РДН. Режим «Країни»:
+              порівняння всіх зон за обраним продуктом (Spot · Day · Week+WE · Month). Перемикач €/₴
+              і курс НБУ.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {query.isLoading ? (
+              <Skeleton className="h-[300px] w-full rounded-[calc(var(--radius-xl)-8px)]" />
+            ) : report ? (
+              <OverviewChart report={report} />
+            ) : (
+              <p className="text-sm text-muted-foreground">Немає даних.</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {viewMode === "days" ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>По днях</CardTitle>
+              <CardDescription>
+                Формат подобово: Spot · Day-архів (до поставки) · Week · Weekend · Month · дельти.
+                Day ніколи не підміняється Spot у день поставки.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {query.isLoading ? (
+                <div className="grid gap-2">
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-64 w-full" />
+                </div>
+              ) : report ? (
+                <Tabs defaultValue="dayDeltaEur">
+                  <div className="overflow-x-auto">
+                    <TabsList>
+                      <TabsTrigger value="spot">Spot</TabsTrigger>
+                      <TabsTrigger value="dayFutures">Day</TabsTrigger>
+                      <TabsTrigger value="weekFutures">Week</TabsTrigger>
+                      <TabsTrigger value="weekendFutures">Weekend</TabsTrigger>
+                      <TabsTrigger value="monthFutures">Month</TabsTrigger>
+                      <TabsTrigger value="dayDeltaEur">Δ day €</TabsTrigger>
+                      <TabsTrigger value="dayDeltaPct">Δ day %</TabsTrigger>
+                      <TabsTrigger value="monthDeltaEur">Δ month €</TabsTrigger>
+                      <TabsTrigger value="euUa">EU + UA</TabsTrigger>
+                    </TabsList>
+                  </div>
+                  <TabsContent value="spot">
+                    <PriceTable report={report} metric="spot" highlight={zone} />
+                  </TabsContent>
+                  <TabsContent value="dayFutures">
+                    <PriceTable report={report} metric="dayFutures" highlight={zone} />
+                  </TabsContent>
+                  <TabsContent value="weekFutures">
+                    <PriceTable report={report} metric="weekFutures" highlight={zone} />
+                  </TabsContent>
+                  <TabsContent value="weekendFutures">
+                    <PriceTable report={report} metric="weekendFutures" highlight={zone} />
+                  </TabsContent>
+                  <TabsContent value="monthFutures">
+                    <PriceTable report={report} metric="monthFutures" highlight={zone} />
+                  </TabsContent>
+                  <TabsContent value="dayDeltaEur">
+                    <PriceTable report={report} metric="dayDeltaEur" highlight={zone} />
+                  </TabsContent>
+                  <TabsContent value="dayDeltaPct">
+                    <PriceTable report={report} metric="dayDeltaPct" highlight={zone} />
+                  </TabsContent>
+                  <TabsContent value="monthDeltaEur">
+                    <PriceTable report={report} metric="monthDeltaEur" highlight={zone} />
+                  </TabsContent>
+                  <TabsContent value="euUa">
+                    <EuUaTable report={report} />
+                  </TabsContent>
+                </Tabs>
+              ) : null}
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            <Card>
+              <CardHeader>
+                <CardTitle>Середні за період · по країнах</CardTitle>
+                <CardDescription>
+                  Середні Spot / Day / Week / Weekend / Month за весь обраний діапазон для кожної
+                  зони, плюс дельти day і month.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {query.isLoading ? (
+                  <Skeleton className="h-40 w-full" />
+                ) : report ? (
+                  <ZoneMonthTable report={report} />
+                ) : null}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Декади · по країнах</CardTitle>
+                <CardDescription>
+                  Середні за декаду (1–10 / 11–20 / 21–кінець) для кожної зони.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {query.isLoading ? (
+                  <Skeleton className="h-40 w-full" />
+                ) : report ? (
+                  <ZoneDecadeTable report={report} />
+                ) : null}
+              </CardContent>
+            </Card>
+          </>
+        )}
+
+        {report?.warnings?.length ? (
+          <Card>
+            <CardContent className="flex flex-col gap-2 py-5 text-sm text-muted-foreground">
+              {report.warnings.map((w) => (
+                <p key={w}>{w}</p>
+              ))}
+            </CardContent>
+          </Card>
+        ) : null}
+
+        <footer className="flex flex-col gap-2 pb-8 text-xs leading-relaxed text-muted-foreground">
+          <Separator />
+          <p className="flex items-center gap-2 pt-3">
+            <Zap className="size-3.5" />
+            Джерела: {report?.sources?.eex ?? "EEX"} · {report?.sources?.spot ?? "Energy-Charts"} ·{" "}
+            {report?.sources?.ua ?? "UA РДН"}
+          </p>
+          <p className="flex items-center gap-2">
+            <Activity className="size-3.5" />
+            Подобовий shortCode — префікс зони + день місяця. Місячний код не підходить для day-контрактів.
+          </p>
+        </footer>
       </main>
     </div>
   );
