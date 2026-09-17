@@ -1,29 +1,11 @@
 <!DOCTYPE html>
-<html lang="uk"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>GRIDDELTA — Імпорт / Експорт</title></head>
-<body style="margin:0;background:#0b1220;color:#8b9bb4;font-family:system-ui;padding:24px;line-height:1.5">
-<p id="s">Завантаження дашборду…</p>
-<script>
-(async()=>{
-  try{
-    const r=await fetch("/import-export-app.html",{cache:"no-store"});
-    if(!r.ok) throw new Error("HTTP "+r.status);
-    const html=await r.text();
-    if(html.length < 1000 || html.includes("PLACEHOLDER") || html.includes("Upload GRIDDELTA")){
-      throw new Error("Файл import-export-app.html ще не завантажений у репо (заглушка)");
-    }
-    document.open();document.write(html);document.close();
-  }catch(e){
-    document.getElementById("s").innerHTML =
-      "<h2 style=\"color:#e2e8f0\">Імпорт / Експорт</h2>"+
-      "<p style=\"color:#f87171\">Помилка: "+e+"</p>"+
-      "<p>Щоб увімкнути сторінку в додатку:</p>"+
-      "<ol style=\"color:#94a3b8\">"+
-      "<li>Візьми файл <b style=\"color:#e2e8f0\">import-export-app.html</b> з Google Drive (папка «Аналітика ІМПОРТ-ЕКСПОРТ»)</li>"+
-      "<li>Поклади його в <code style=\"color:#60a5fa\">public/import-export-app.html</code></li>"+
-      "<li><code style=\"color:#60a5fa\">git add public/import-export-app.html && git commit -m \"add import-export app\" && git push</code></li>"+
-      "</ol>"+
-      "<p>Або відкрий напряму <b style=\"color:#e2e8f0\">GRIDDELTA.html</b> з Drive — працює офлайн.</p>";
-  }
-})();
-</script>
-</body></html>
+<html lang="uk">
+<head>
+<meta charset="utf-8"/>
+<meta http-equiv="refresh" content="0;url=/import-export-app.html"/>
+<title>GRIDDELTA — Імпорт / Експорт</title>
+</head>
+<body style="margin:0;background:#0b1220;color:#8b9bb4;font-family:system-ui;padding:24px">
+Перехід на <a href="/import-export-app.html" style="color:#93c5fd">дашборд Імпорт / Експорт</a>…
+</body>
+</html>
