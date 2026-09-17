@@ -155,7 +155,16 @@
 <!-- DAILY -->
 <section id="tab-daily" style="display:none">
   <div class="card" style="padding:14px 16px;margin-bottom:14px;overflow-x:auto">
-    <h2 class="sec">ЗВЕДЕНА ТАБЛИЦЯ · ДОБОВІ ОБСЯГИ ОС [МВт]</h2>
+    <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
+      <h2 class="sec" style="margin:0" id="dailyTableTitle">ЗВЕДЕНА ТАБЛИЦЯ · ДОБОВІ ОБСЯГИ [МВт]</h2>
+      <div style="display:flex;gap:6px;align-items:center">
+        <span style="font-size:10px;color:var(--muted)">Метрика</span>
+        <select id="dailyMetric">
+          <option value="oc">ОС (заявлено)</option>
+          <option value="rps">РПС (акцепт)</option>
+        </select>
+      </div>
+    </div>
     <div id="dailyTable"></div>
   </div>
   <div class="card" style="padding:14px 16px;margin-bottom:14px">
@@ -163,7 +172,16 @@
     <div id="heat" style="overflow-x:auto"></div>
   </div>
   <div class="card" style="padding:14px 16px">
-    <h2 class="sec">Δ ОС · ІМПОРТ / ЕКСПОРТ ДО ПОПЕРЕДНЬОГО ДНЯ</h2>
+    <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
+      <h2 class="sec" style="margin:0" id="deltaChartTitle">Δ · ІМПОРТ / ЕКСПОРТ ДО ПОПЕРЕДНЬОГО ДНЯ</h2>
+      <div style="display:flex;gap:6px;align-items:center">
+        <span style="font-size:10px;color:var(--muted)">Метрика</span>
+        <select id="deltaMetric">
+          <option value="oc">Δ ОС</option>
+          <option value="rps">Δ РПС</option>
+        </select>
+      </div>
+    </div>
     <div style="height:220px;position:relative"><canvas id="chartDelta"></canvas></div>
   </div>
 </section>
@@ -171,8 +189,26 @@
 <!-- WINNERS -->
 <section id="tab-winners" style="display:none">
   <div class="card" style="padding:14px 16px;margin-bottom:14px">
-    <h2 class="sec">КОНТРАГЕНТИ · ОБСЯГ ДЕНЬ vs ПОПЕРЕДНІЙ · Δ</h2>
+    <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
+      <h2 class="sec" style="margin:0">КОНТРАГЕНТИ · ОБСЯГ ДЕНЬ vs ПОПЕРЕДНІЙ · Δ</h2>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <span style="font-size:10px;color:var(--muted)">Фільтр</span>
+        <select id="winSide">
+          <option value="all">Усі</option>
+          <option value="import">Лише імпорт</option>
+          <option value="export">Лише експорт</option>
+        </select>
+        <span style="font-size:10px;color:var(--muted)">Напрямок</span>
+        <select id="winDir">
+          <option value="all">Усі напрямки</option>
+        </select>
+      </div>
+    </div>
     <div style="overflow-x:auto" id="winTable"></div>
+  </div>
+  <div class="card" style="padding:14px 16px;margin-bottom:14px">
+    <h2 class="sec">ОБСЯГИ · ІМПОРТ vs ЕКСПОРТ (Σ по контрагентах)</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px" id="winSideTotals"></div>
   </div>
   <div class="card" style="padding:14px 16px">
     <h2 class="sec">ТОП ЗРОСТАННЯ / ПАДІННЯ</h2>
@@ -480,42 +516,110 @@ function renderHourly(){
   metricSel.onchange=draw; modeSel.onchange=draw; labelsChk.onchange=draw; draw();
 }
 
+function isImportDir(d){
+  const side = DATA.compare?.[d]?.side;
+  if(side==="import") return true;
+  if(side==="export") return false;
+  return /^(RO|MD|SK|HU|PL)-UA$/.test(d) || (d.endsWith("-UA") && !d.startsWith("UA-"));
+}
+
 function renderDaily(){
-  const dt=DATA.day_totals, dirs=DATA.meta.directions;
+  const dt=DATA.day_totals||[], dirs=DATA.meta.directions||[];
+  const metric=(document.getElementById("dailyMetric")||{}).value||"oc";
+  const title=document.getElementById("dailyTableTitle");
+  if(title) title.textContent = metric==="rps"
+    ? "ЗВЕДЕНА ТАБЛИЦЯ · ДОБОВІ ОБСЯГИ РПС [МВт]"
+    : "ЗВЕДЕНА ТАБЛИЦЯ · ДОБОВІ ОБСЯГИ ОС [МВт]";
+
   let html=`<table class="cmp"><thead><tr><th>Дата</th>`;
-  dirs.forEach(d=>html+=`<th style="text-align:center;color:${DIR_COLOR[d]}">${DIR_LABEL[d]}</th>`);
-  html+=`<th style="text-align:right">РАЗОМ</th><th style="text-align:center">Δ</th>
-    <th style="text-align:center">Δ Імп</th><th style="text-align:center">Δ Експ</th></tr></thead><tbody>`;
+  dirs.forEach(d=>html+=`<th style="text-align:center;color:${DIR_COLOR[d]||'#8b9bb4'}">${DIR_LABEL[d]||d}</th>`);
+  html+=`<th style="text-align:right;color:#60a5fa">ІМПОРТ</th>
+    <th style="text-align:right;color:#4ade80">ЕКСПОРТ</th>
+    <th style="text-align:right">РАЗОМ</th>
+    <th style="text-align:center">Δ Імп</th>
+    <th style="text-align:center">Δ Експ</th>
+    <th style="text-align:center">Δ Σ</th></tr></thead><tbody>`;
+
+  let prevImp=null, prevExp=null, prevTot=null;
   dt.forEach(row=>{
+    let imp=0, exp=0;
     html+=`<tr><td style="font-family:ui-monospace;color:var(--muted)">${row.date.slice(5)}</td>`;
-    dirs.forEach(d=>{const v=row.directions[d]?.oc;html+=`<td style="text-align:center" class="num">${v!=null?fmt(v):"—"}</td>`});
-    html+=`<td style="text-align:right" class="num">${fmt(row.oc)}</td>
-      <td style="text-align:center">${deltaHtml(row.doc,null)}</td>
-      <td style="text-align:center">${deltaHtml(row.dimp,null)}</td>
-      <td style="text-align:center">${deltaHtml(row.dexp,null)}</td></tr>`;
+    dirs.forEach(d=>{
+      const cell=row.directions?.[d];
+      const v=cell ? (metric==="rps" ? cell.rps : cell.oc) : null;
+      if(v!=null){ if(isImportDir(d)) imp+=v; else exp+=v; }
+      html+=`<td style="text-align:center" class="num">${v!=null?fmt(v):"—"}</td>`;
+    });
+    // prefer API fields when metric matches, else computed
+    if(metric==="oc"){
+      imp = row.imp_oc ?? imp;
+      exp = row.exp_oc ?? exp;
+    } else {
+      imp = row.imp_rps ?? imp;
+      exp = row.exp_rps ?? exp;
+    }
+    const tot = imp+exp;
+    const dImp = prevImp!=null ? imp-prevImp : null;
+    const dExp = prevExp!=null ? exp-prevExp : null;
+    const dTot = prevTot!=null ? tot-prevTot : null;
+    html+=`<td style="text-align:right" class="num">${fmt(imp)}</td>
+      <td style="text-align:right" class="num">${fmt(exp)}</td>
+      <td style="text-align:right" class="num">${fmt(tot)}</td>
+      <td style="text-align:center">${deltaHtml(dImp,null)}</td>
+      <td style="text-align:center">${deltaHtml(dExp,null)}</td>
+      <td style="text-align:center">${deltaHtml(dTot,null)}</td></tr>`;
+    prevImp=imp; prevExp=exp; prevTot=tot;
   });
   html+=`</tbody></table>`;
   document.getElementById("dailyTable").innerHTML=html;
 
   let heat=`<table class="cmp"><thead><tr><th>Дата</th>`;
-  dirs.forEach(d=>heat+=`<th style="text-align:center">${DIR_LABEL[d]}</th>`);
+  dirs.forEach(d=>heat+=`<th style="text-align:center">${DIR_LABEL[d]||d}</th>`);
   heat+=`</tr></thead><tbody>`;
   dt.forEach(row=>{
     heat+=`<tr><td style="font-family:ui-monospace;color:var(--muted)">${row.date.slice(5)}</td>`;
-    dirs.forEach(d=>{const c=row.directions[d]?.coverage;
+    dirs.forEach(d=>{const c=row.directions?.[d]?.coverage;
       heat+=`<td style="text-align:center"><span class="heat" style="background:${covBg(c)}">${c!=null?fmt(c,0)+"%":"—"}</span></td>`});
     heat+=`</tr>`;
   });
   heat+=`</tbody></table>`;
   document.getElementById("heat").innerHTML=heat;
 
+  renderDeltaChart();
+}
+
+function renderDeltaChart(){
+  const dt=DATA.day_totals||[];
+  const metric=(document.getElementById("deltaMetric")||{}).value||"oc";
+  const title=document.getElementById("deltaChartTitle");
+  if(title) title.textContent = metric==="rps"
+    ? "Δ РПС · ІМПОРТ / ЕКСПОРТ ДО ПОПЕРЕДНЬОГО ДНЯ"
+    : "Δ ОС · ІМПОРТ / ЕКСПОРТ ДО ПОПЕРЕДНЬОГО ДНЯ";
+
+  // compute series
+  let prevImp=null, prevExp=null;
+  const dimp=[], dexp=[];
+  dt.forEach(row=>{
+    let imp=0, exp=0;
+    (DATA.meta.directions||[]).forEach(d=>{
+      const cell=row.directions?.[d];
+      const v=cell ? (metric==="rps" ? cell.rps : cell.oc) : 0;
+      if(isImportDir(d)) imp+=(v||0); else exp+=(v||0);
+    });
+    if(metric==="oc"){ imp=row.imp_oc??imp; exp=row.exp_oc??exp; }
+    else { imp=row.imp_rps??imp; exp=row.exp_rps??exp; }
+    dimp.push(prevImp!=null ? imp-prevImp : 0);
+    dexp.push(prevExp!=null ? exp-prevExp : 0);
+    prevImp=imp; prevExp=exp;
+  });
+
   destroy("delta");
   charts.delta=new Chart(document.getElementById("chartDelta"),{
     type:"bar",
     data:{labels:dt.map(x=>x.date.slice(5)),datasets:[
-      {label:"Δ Імпорт",data:dt.map(x=>x.dimp??0),backgroundColor:"rgba(59,130,246,.55)",borderRadius:3,
+      {label:"Δ Імпорт",data:dimp,backgroundColor:"rgba(59,130,246,.55)",borderRadius:3,
         datalabels:{anchor:"end",align:"top",formatter:v=>v?fmt(v):"",font:{size:9},color:"#93c5fd"}},
-      {label:"Δ Експорт",data:dt.map(x=>x.dexp??0),backgroundColor:"rgba(34,197,94,.5)",borderRadius:3,
+      {label:"Δ Експорт",data:dexp,backgroundColor:"rgba(34,197,94,.5)",borderRadius:3,
         datalabels:{anchor:"end",align:"top",formatter:v=>v?fmt(v):"",font:{size:9},color:"#4ade80"}},
     ]},
     options:{responsive:true,maintainAspectRatio:false,
@@ -525,30 +629,137 @@ function renderDaily(){
   });
 }
 
+function buildWinnersFromHourly(){
+  // Aggregate winners by company × direction from hourly d1/d2
+  const h1=DATA.hourly?.d1||{}, h2=DATA.hourly?.d2||{};
+  const dirs=DATA.meta.directions||[];
+  const map={}; // company -> { dirs: {dir: {v1,v2}}, v1, v2 }
+  function add(dayKey, hourly){
+    dirs.forEach(d=>{
+      const rows=hourly[d]||[];
+      rows.forEach(row=>{
+        (row.winners||[]).forEach(w=>{
+          if(!w.company) return;
+          if(!map[w.company]) map[w.company]={v1:0,v2:0,dirs:{}};
+          if(!map[w.company].dirs[d]) map[w.company].dirs[d]={v1:0,v2:0};
+          map[w.company].dirs[d][dayKey]+=w.volume||0;
+          map[w.company][dayKey]+=w.volume||0;
+        });
+      });
+    });
+  }
+  add("v1", h1); add("v2", h2);
+  return Object.entries(map).map(([company,x])=>{
+    const abs=Math.round((x.v2-x.v1)*10)/10;
+    const pct=x.v1 ? Math.round((abs/x.v1)*1000)/10 : (x.v2?100:0);
+    const byDir=Object.entries(x.dirs).map(([d,v])=>({
+      dir:d, v1:v.v1, v2:v.v2, abs:Math.round((v.v2-v.v1)*10)/10,
+      side: isImportDir(d)?"import":"export"
+    })).filter(z=>z.v1||z.v2);
+    const imp=byDir.filter(z=>z.side==="import").reduce((s,z)=>({v1:s.v1+z.v1,v2:s.v2+z.v2}),{v1:0,v2:0});
+    const exp=byDir.filter(z=>z.side==="export").reduce((s,z)=>({v1:s.v1+z.v1,v2:s.v2+z.v2}),{v1:0,v2:0});
+    return {company, v1:x.v1, v2:x.v2, d:{abs,pct}, byDir, imp, exp};
+  }).sort((a,b)=>Math.abs(b.d.abs)-Math.abs(a.d.abs));
+}
+
 function renderWinners(){
-  const w=DATA.winners_cmp||[], m=DATA.meta;
+  const m=DATA.meta;
+  let list=buildWinnersFromHourly();
+  if(!list.length && DATA.winners_cmp?.length){
+    list=(DATA.winners_cmp||[]).map(x=>({
+      company:x.company, v1:x.v1||0, v2:x.v2||0, d:x.d||{abs:0,pct:0},
+      byDir:[], imp:{v1:0,v2:0}, exp:{v1:0,v2:0}
+    }));
+  }
+
+  // fill direction filter
+  const winDir=document.getElementById("winDir");
+  if(winDir && winDir.options.length<=1){
+    (DATA.meta.directions||[]).forEach(d=>{
+      const o=document.createElement("option");
+      o.value=d; o.textContent=DIR_LABEL[d]||d;
+      winDir.appendChild(o);
+    });
+  }
+  const sideF=(document.getElementById("winSide")||{}).value||"all";
+  const dirF=(document.getElementById("winDir")||{}).value||"all";
+
+  let filtered=list.map(x=>{
+    if(dirF!=="all"){
+      const dd=x.byDir.find(z=>z.dir===dirF);
+      if(!dd) return null;
+      const abs=dd.abs;
+      const pct=dd.v1?Math.round((abs/dd.v1)*1000)/10:(dd.v2?100:0);
+      return {...x, v1:dd.v1, v2:dd.v2, d:{abs,pct}, _side:dd.side};
+    }
+    if(sideF==="import"){
+      const abs=Math.round((x.imp.v2-x.imp.v1)*10)/10;
+      const pct=x.imp.v1?Math.round((abs/x.imp.v1)*1000)/10:(x.imp.v2?100:0);
+      if(!x.imp.v1 && !x.imp.v2) return null;
+      return {...x, v1:x.imp.v1, v2:x.imp.v2, d:{abs,pct}, _side:"import"};
+    }
+    if(sideF==="export"){
+      const abs=Math.round((x.exp.v2-x.exp.v1)*10)/10;
+      const pct=x.exp.v1?Math.round((abs/x.exp.v1)*1000)/10:(x.exp.v2?100:0);
+      if(!x.exp.v1 && !x.exp.v2) return null;
+      return {...x, v1:x.exp.v1, v2:x.exp.v2, d:{abs,pct}, _side:"export"};
+    }
+    return x;
+  }).filter(Boolean).sort((a,b)=>Math.abs(b.d.abs)-Math.abs(a.d.abs));
+
   let t=`<table class="cmp"><thead><tr>
-    <th>#</th><th>Компанія</th>
+    <th>#</th><th>Компанія</th><th>Напрямки</th>
     <th style="text-align:right">${m.d1}</th>
     <th style="text-align:right">${m.d2}</th>
     <th style="text-align:center">Δ МВт</th>
     <th style="text-align:center">Δ %</th>
+    <th style="text-align:right">Імп ${m.d2}</th>
+    <th style="text-align:right">Експ ${m.d2}</th>
   </tr></thead><tbody>`;
-  w.forEach((x,i)=>{
+  filtered.forEach((x,i)=>{
+    const dirsLabel=(x.byDir||[]).slice(0,4).map(z=>{
+      const col=z.side==="import"?"#60a5fa":"#4ade80";
+      return `<span style="color:${col};font-size:10px;font-weight:700">${DIR_LABEL[z.dir]||z.dir}</span>`;
+    }).join(" ");
     t+=`<tr>
       <td style="color:var(--muted)">${i+1}</td>
       <td style="font-weight:600">${x.company}</td>
+      <td>${dirsLabel||"—"}</td>
       <td class="num" style="text-align:right">${fmt(x.v1,1)}</td>
       <td class="num" style="text-align:right">${fmt(x.v2,1)}</td>
       <td style="text-align:center">${deltaHtml(x.d.abs,null)}</td>
       <td style="text-align:center">${x.d.pct!=null?`<span class="delta ${x.d.abs>0?"badge-up":x.d.abs<0?"badge-down":"badge-flat"}">${x.d.pct>0?"+":""}${x.d.pct}%</span>`:"—"}</td>
+      <td class="num" style="text-align:right;color:#60a5fa">${fmt(x.imp?.v2,1)}</td>
+      <td class="num" style="text-align:right;color:#4ade80">${fmt(x.exp?.v2,1)}</td>
     </tr>`;
   });
   t+=`</tbody></table>`;
-  document.getElementById("winTable").innerHTML=t;
+  document.getElementById("winTable").innerHTML=t || "—";
 
-  const up=[...w].filter(x=>x.d.abs>0).sort((a,b)=>b.d.abs-a.d.abs).slice(0,8);
-  const down=[...w].filter(x=>x.d.abs<0).sort((a,b)=>a.d.abs-b.d.abs).slice(0,8);
+  // side totals
+  const sumImp1=list.reduce((s,x)=>s+(x.imp?.v1||0),0);
+  const sumImp2=list.reduce((s,x)=>s+(x.imp?.v2||0),0);
+  const sumExp1=list.reduce((s,x)=>s+(x.exp?.v1||0),0);
+  const sumExp2=list.reduce((s,x)=>s+(x.exp?.v2||0),0);
+  const el=document.getElementById("winSideTotals");
+  if(el){
+    el.innerHTML=`
+      <div class="flow-card imp">
+        <div style="font-size:11px;font-weight:700;color:#60a5fa;margin-bottom:6px">↓ ІМПОРТ (Σ контрагенти)</div>
+        <div style="font-size:20px;font-weight:800">${fmt(sumImp2)} <span style="font-size:11px;color:var(--muted)">МВт</span></div>
+        <div style="font-size:11px;color:var(--muted);margin:2px 0">було ${fmt(sumImp1)}</div>
+        ${deltaHtml(sumImp2-sumImp1, sumImp1?Math.round((sumImp2-sumImp1)/sumImp1*1000)/10:null)}
+      </div>
+      <div class="flow-card exp">
+        <div style="font-size:11px;font-weight:700;color:#4ade80;margin-bottom:6px">↑ ЕКСПОРТ (Σ контрагенти)</div>
+        <div style="font-size:20px;font-weight:800">${fmt(sumExp2)} <span style="font-size:11px;color:var(--muted)">МВт</span></div>
+        <div style="font-size:11px;color:var(--muted);margin:2px 0">було ${fmt(sumExp1)}</div>
+        ${deltaHtml(sumExp2-sumExp1, sumExp1?Math.round((sumExp2-sumExp1)/sumExp1*1000)/10:null)}
+      </div>`;
+  }
+
+  const up=[...filtered].filter(x=>x.d.abs>0).sort((a,b)=>b.d.abs-a.d.abs).slice(0,8);
+  const down=[...filtered].filter(x=>x.d.abs<0).sort((a,b)=>a.d.abs-b.d.abs).slice(0,8);
   document.getElementById("winTop").innerHTML=`
     <div>
       <div style="font-size:12px;font-weight:700;color:#4ade80;margin-bottom:8px">↑ Зростання</div>
@@ -561,6 +772,7 @@ function renderWinners(){
         <span style="font-size:12px">${x.company}</span>${deltaHtml(x.d.abs,x.d.pct)}</div>`).join("")||"—"}
     </div>`;
 }
+
 
 async function boot(d1, d2, refresh){
   const st = document.getElementById("liveStatus");
@@ -615,6 +827,15 @@ async function boot(d1, d2, refresh){
 }
 
 function wireDatePickers(){
+  const dm=document.getElementById("dailyMetric");
+  if(dm) dm.onchange=()=>renderDaily();
+  const dlt=document.getElementById("deltaMetric");
+  if(dlt) dlt.onchange=()=>renderDeltaChart();
+  const ws=document.getElementById("winSide");
+  if(ws) ws.onchange=()=>renderWinners();
+  const wd=document.getElementById("winDir");
+  if(wd) wd.onchange=()=>renderWinners();
+
   const selA = document.getElementById("dateA");
   const selB = document.getElementById("dateB");
   const go = () => boot(selA.value, selB.value, false);
