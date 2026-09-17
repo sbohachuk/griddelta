@@ -1,45 +1,74 @@
-/** Import/export data loader — snapshot from Google Sheets. */
-export async function loadImportExportData(): Promise<{
-  meta: { d1: string; d2: string; directions: string[] };
-  compare: Record<string, { oc?: number; rps?: number; price?: number; coverage?: number }>;
-  hourly: { d1: Record<string, number[]>; d2: Record<string, number[]> };
-  winners_cmp: Array<{ company: string; d: { abs: number; pct: number } }>;
-}> {
-  return {
-    meta: {
-      d1: "2026-09-16",
-      d2: "2026-09-17",
-      directions: ["RO-UA", "UA-RO", "MD-UA", "UA-MD", "SK-UA", "UA-SK", "HU-UA", "UA-HU", "UA-PL"],
-    },
-    compare: {
-      "RO-UA": { oc: 450, rps: 380, price: 92.5, coverage: 0.84 },
-      "UA-RO": { oc: 200, rps: 150, price: 88.0, coverage: 0.75 },
-      "MD-UA": { oc: 120, rps: 100, price: 95.0, coverage: 0.83 },
-      "UA-MD": { oc: 80, rps: 60, price: 90.0, coverage: 0.75 },
-      "SK-UA": { oc: 300, rps: 250, price: 85.0, coverage: 0.83 },
-      "UA-SK": { oc: 100, rps: 70, price: 82.0, coverage: 0.7 },
-      "HU-UA": { oc: 280, rps: 220, price: 87.0, coverage: 0.79 },
-      "UA-HU": { oc: 90, rps: 55, price: 84.0, coverage: 0.61 },
-      "UA-PL": { oc: 150, rps: 110, price: 80.0, coverage: 0.73 },
-    },
-    hourly: {
-      d1: Object.fromEntries(
-        ["RO-UA", "UA-RO", "MD-UA", "UA-MD", "SK-UA", "UA-SK", "HU-UA", "UA-HU", "UA-PL"].map((d) => [
-          d,
-          Array.from({ length: 24 }, (_, h) => 50 + (h % 6) * 10),
-        ]),
-      ),
-      d2: Object.fromEntries(
-        ["RO-UA", "UA-RO", "MD-UA", "UA-MD", "SK-UA", "UA-SK", "HU-UA", "UA-HU", "UA-PL"].map((d) => [
-          d,
-          Array.from({ length: 24 }, (_, h) => 55 + (h % 5) * 12),
-        ]),
-      ),
-    },
-    winners_cmp: [
-      { company: "DTEK", d: { abs: 120, pct: 8.5 } },
-      { company: "Ukrenergo", d: { abs: -40, pct: -3.2 } },
-      { company: "ERU", d: { abs: 55, pct: 4.1 } },
-    ],
+/** Import/export data loader — snapshot from Google Sheets (public/import-export-data.json). */
+
+export type Delta = { abs?: number | null; pct?: number | null };
+
+export type CompareItem = {
+  oc1?: number | null;
+  oc2?: number | null;
+  oc_d?: Delta;
+  rps1?: number | null;
+  rps2?: number | null;
+  rps_d?: Delta;
+  price1?: number | null;
+  price2?: number | null;
+  cov1?: number | null;
+  cov2?: number | null;
+  side?: "import" | "export" | string;
+  // legacy simplified fields (fallback)
+  oc?: number | null;
+  rps?: number | null;
+  price?: number | null;
+  coverage?: number | null;
+};
+
+export type IEData = {
+  meta: {
+    d1: string;
+    d2: string;
+    directions: string[];
+    range?: string | string[];
+    n_days?: number;
   };
+  flow?: {
+    d1?: { imp_oc?: number; exp_oc?: number; imp_rps?: number; exp_rps?: number };
+    d2?: { imp_oc?: number; exp_oc?: number; imp_rps?: number; exp_rps?: number };
+    delta?: Record<string, Delta>;
+  };
+  compare: Record<string, CompareItem>;
+  day_totals?: Array<{
+    date: string;
+    oc?: number;
+    rps?: number;
+    imp_oc?: number;
+    exp_oc?: number;
+    imp_rps?: number;
+    exp_rps?: number;
+    directions?: Record<string, { oc?: number; rps?: number; coverage?: number }>;
+  }>;
+  hourly: {
+    d1?: Record<string, unknown>;
+    d2?: Record<string, unknown>;
+  };
+  winners_cmp: Array<{
+    company: string;
+    v1?: number;
+    v2?: number;
+    vol?: number;
+    d?: Delta;
+  }>;
+};
+
+export async function loadImportExportData(): Promise<IEData> {
+  const res = await fetch("/import-export-data.json", { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(
+      `Не вдалося завантажити import-export-data.json (HTTP ${res.status}). ` +
+        `Поклади знімок у public/import-export-data.json`,
+    );
+  }
+  const data = (await res.json()) as IEData;
+  if (!data?.meta?.directions?.length) {
+    throw new Error("JSON знімок порожній або без meta.directions");
+  }
+  return data;
 }
