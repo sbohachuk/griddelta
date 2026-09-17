@@ -1,8 +1,24 @@
 <!DOCTYPE html>
-<html lang="uk">
-<head>
-<meta charset="UTF-8"/>
-<title>PLACEHOLDER - content too large for single tool call</title>
-</head>
-<body><p>Upload GRIDDELTA.html from Google Drive as this file.</p></body>
-</html>
+<html lang="uk"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>GRIDDELTA — Імпорт / Експорт</title></head>
+<body style="margin:0;background:#0b1220;color:#94a3b8;font-family:system-ui;padding:24px">
+<p id="s">Завантаження дашборду…</p>
+<script>
+(async () => {
+  try {
+    const n = 5;
+    const parts = await Promise.all(
+      Array.from({length: n}, (_, i) =>
+        fetch("/ie-chunks/chunk-" + i + ".txt", {cache: "no-store"}).then(r => {
+          if (!r.ok) throw new Error("chunk " + i + " HTTP " + r.status);
+          return r.text();
+        })
+      )
+    );
+    const html = parts.join("");
+    document.open(); document.write(html); document.close();
+  } catch (e) {
+    document.getElementById("s").innerHTML = "Помилка завантаження: " + e;
+  }
+})();
+</script>
+</body></html>
