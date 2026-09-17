@@ -1,9 +1,8 @@
 /**
  * GET /api/import-export?d1=&d2=&refresh=1
- * Production (Nitro) handler — reuses shared parser.
+ * Live data from Google Spreadsheet (server-side only).
  */
-// @ts-expect-error resolved at build
-import { buildSnapshot, loadAllDirections } from "../../../src/lib/import-export/sheets-live";
+import { buildSnapshot, loadAllDirections } from "../../lib/sheets-ie";
 
 export default defineEventHandler(async (event) => {
   const q = getQuery(event);
@@ -19,9 +18,11 @@ export default defineEventHandler(async (event) => {
     return await buildSnapshot(d1, d2);
   } catch (e) {
     console.error("[api/import-export]", e);
-    throw createError({
-      statusCode: 502,
-      statusMessage: String(e instanceof Error ? e.message : e),
-    });
+    // return JSON body so UI can show message (not only unhandled 500)
+    setResponseStatus(event, 502);
+    return {
+      error: String(e instanceof Error ? e.message : e),
+      meta: { directions: [], available_dates: [] },
+    };
   }
 });

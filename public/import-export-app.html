@@ -570,13 +570,20 @@ async function boot(d1, d2, refresh){
     if (d1) qs.set("d1", d1);
     if (d2) qs.set("d2", d2);
     if (refresh) qs.set("refresh", "1");
-    const res = await fetch("/api/import-export?" + qs.toString(), { cache: "no-store" });
+    let res = await fetch("/api/import-export?" + qs.toString(), { cache: "no-store" });
     if (!res.ok) {
-      const t = await res.text();
-      throw new Error("HTTP " + res.status + " " + t.slice(0, 200));
+      // fallback: static snapshot if API down
+      const fb = await fetch("/import-export-data.json", { cache: "no-store" });
+      if (!fb.ok) {
+        const t = await res.text();
+        throw new Error("HTTP " + res.status + " " + t.slice(0, 200));
+      }
+      DATA = await fb.json();
+      if (st) st.textContent = "Fallback JSON (API " + res.status + ")";
+    } else {
+      DATA = await res.json();
+      if (DATA.error) throw new Error(DATA.error);
     }
-    DATA = await res.json();
-    if (DATA.error) throw new Error(DATA.error);
     if (!DATA?.meta?.directions?.length) throw new Error("Порожній знімок");
 
     const dates = DATA.meta.available_dates || [];
