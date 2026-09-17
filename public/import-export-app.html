@@ -86,16 +86,17 @@
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px" id="kpis"></div>
 
   <div class="card" style="padding:14px 16px;margin-bottom:14px">
-    <h2 class="sec">НАПРЯМКИ · ОС / РПС · Δ ДО ПОПЕРЕДНЬОГО ДНЯ [МВт]</h2>
+    <h2 class="sec">НАПРЯМКИ · ОС / РПС / ЦІНА ПЕРЕТИНУ · Δ ДО ПОПЕРЕДНЬОГО ДНЯ</h2>
     <div style="overflow-x:auto"><table class="cmp"><thead>
       <tr>
         <th>Напрямок</th><th>Тип</th>
         <th style="text-align:right">ОС д−1</th><th style="text-align:right">ОС день</th><th style="text-align:center">Δ ОС</th>
         <th style="text-align:right">РПС д−1</th><th style="text-align:right">РПС день</th><th style="text-align:center">Δ РПС</th>
+        <th style="text-align:right">Ціна д−1</th><th style="text-align:right">Ціна день</th><th style="text-align:center">Δ € </th>
         <th style="text-align:right">Покриття</th>
       </tr>
     </thead><tbody id="cmpBody"></tbody></table></div>
-    <div style="margin-top:8px;font-size:11px;color:var(--muted)"><b>ОС</b> — offered · <b>РПС</b> — allocated / отримано · Покриття = РПС/ОС</div>
+    <div style="margin-top:8px;font-size:11px;color:var(--muted)"><b>ОС</b> — offered · <b>РПС</b> — allocated / отримано · <b>Ціна</b> — гранична ціна перетину €/MWh (сер. по годинах) · Покриття = РПС/ОС</div>
   </div>
 
   <div class="card" style="padding:14px 16px;margin-bottom:14px">
@@ -121,6 +122,7 @@
         <select id="hMetric">
           <option value="oc">ОС (заявлено)</option>
           <option value="rps" selected>РПС (акцепт)</option>
+          <option value="price">Ціна перетину €/MWh</option>
         </select>
       </div>
       <div>
@@ -322,19 +324,25 @@ function renderOverview(){
     const c=cmp[dir];
     const chip=DIR_CHIP[dir]||["#64748b",dir.slice(0,2)];
     if(!c) return `<tr style="opacity:.4"><td><span class="chip" style="background:${chip[0]}">${chip[1]}</span>
-      <b style="margin-left:6px">${DIR_LABEL[dir]||dir}</b></td><td colspan="8" style="text-align:center;color:var(--muted);font-size:11px">немає в кеші</td></tr>`;
+      <b style="margin-left:6px">${DIR_LABEL[dir]||dir}</b></td><td colspan="11" style="text-align:center;color:var(--muted);font-size:11px">немає в кеші</td></tr>`;
     tot.oc1+=c.oc1;tot.oc2+=c.oc2;tot.rps1+=c.rps1;tot.rps2+=c.rps2;
     const cov=c.oc2?Math.round(c.rps2/c.oc2*1000)/10:null;
     const side=c.side==="import"?'<span style="color:#60a5fa;font-size:10px;font-weight:700">ІМПОРТ</span>':'<span style="color:#4ade80;font-size:10px;font-weight:700">ЕКСПОРТ</span>';
+    const p1=c.price1, p2=c.price2;
+    const pAbs=(p1!=null&&p2!=null)?Math.round((p2-p1)*100)/100:null;
+    const pPct=(pAbs!=null&&p1)?Math.round((pAbs/p1)*1000)/10:null;
     return `<tr>
       <td><span class="chip" style="background:${chip[0]}">${chip[1]}</span><b style="margin-left:6px">${DIR_LABEL[dir]||dir}</b></td>
       <td>${side}</td>
       <td class="num" style="text-align:right">${fmt(c.oc1)}</td>
       <td class="num" style="text-align:right">${fmt(c.oc2)}</td>
-      <td style="text-align:center">${deltaHtml(c.oc_d.abs,c.oc_d.pct)}</td>
+      <td style="text-align:center">${deltaHtml(c.oc_d?.abs,c.oc_d?.pct)}</td>
       <td class="num" style="text-align:right">${fmt(c.rps1)}</td>
       <td class="num" style="text-align:right">${fmt(c.rps2)}</td>
-      <td style="text-align:center">${deltaHtml(c.rps_d.abs,c.rps_d.pct)}</td>
+      <td style="text-align:center">${deltaHtml(c.rps_d?.abs,c.rps_d?.pct)}</td>
+      <td class="num" style="text-align:right;color:#fbbf24">${p1!=null?fmt(p1,2):"—"}</td>
+      <td class="num" style="text-align:right;color:#fbbf24">${p2!=null?fmt(p2,2):"—"}</td>
+      <td style="text-align:center">${deltaHtml(pAbs,pPct)}</td>
       <td style="text-align:right"><span class="heat" style="background:${covBg(cov)}">${cov!=null?cov+"%":"—"}</span></td>
     </tr>`;
   }).join("")+`<tr style="background:rgba(255,255,255,.03);font-weight:700">
