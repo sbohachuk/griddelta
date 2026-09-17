@@ -1,1 +1,568 @@
-LOADING_FROM_FILE
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>GRIDDELTA — Імпорт / Експорт</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+<style>
+  :root {
+    --bg:#0b1220; --card:#141c2e; --border:#243047; --text:#e8eef8; --muted:#8b9bb4;
+    --blue:#3b82f6; --green:#22c55e; --red:#ef4444; --amber:#f59e0b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,sans-serif}
+  .wrap{max-width:1320px;margin:0 auto;padding:16px 18px 48px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:14px}
+  .badge-up{background:rgba(34,197,94,.15);color:#4ade80}
+  .badge-down{background:rgba(239,68,68,.15);color:#f87171}
+  .badge-flat{background:rgba(139,155,180,.12);color:#8b9bb4}
+  .chip{display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:22px;padding:0 6px;border-radius:6px;font-size:10px;font-weight:700;color:#fff}
+  .tab{padding:8px 14px;border-radius:10px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;border:none;background:transparent}
+  .tab.active{background:#1e3a5f;color:#93c5fd}
+  .tab:hover:not(.active){background:rgba(255,255,255,.04);color:#e8eef8}
+  table.cmp{width:100%;border-collapse:collapse;font-size:12.5px}
+  table.cmp th{font-weight:600;color:var(--muted);text-align:left;padding:9px 7px;border-bottom:1px solid var(--border);font-size:10px;text-transform:uppercase;letter-spacing:.04em}
+  table.cmp td{padding:9px 7px;border-bottom:1px solid rgba(36,48,71,.8);vertical-align:middle}
+  table.cmp tr:hover td{background:rgba(255,255,255,.02)}
+  .num{font-variant-numeric:tabular-nums;font-weight:600}
+  .delta{display:inline-flex;align-items:center;gap:2px;padding:2px 7px;border-radius:7px;font-size:11px;font-weight:600;white-space:nowrap}
+  select{background:#0b1220;border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:13px;color:var(--text)}
+  .legend-btn{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;border:1px solid var(--border);font-size:11px;font-weight:600;cursor:pointer;background:#0b1220;color:var(--text);user-select:none}
+  .legend-btn.off{opacity:.3;text-decoration:line-through}
+  .dot{width:9px;height:9px;border-radius:50%}
+  .heat{font-size:11px;font-weight:600;text-align:center;padding:4px 6px;border-radius:6px;display:inline-block;min-width:40px}
+  h2.sec{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:0 0 12px}
+  .flow-card{padding:14px 16px;border-radius:12px;border:1px solid var(--border)}
+  .flow-card.imp{background:linear-gradient(135deg,rgba(37,99,235,.12),transparent);border-color:rgba(59,130,246,.35)}
+  .flow-card.exp{background:linear-gradient(135deg,rgba(34,197,94,.1),transparent);border-color:rgba(34,197,94,.3)}
+  input[type=checkbox]{accent-color:#3b82f6}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="card" style="padding:14px 18px;margin-bottom:14px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px">
+  <div style="display:flex;align-items:center;gap:12px">
+    <div style="width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#1d4ed8);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:17px">Δ</div>
+    <div>
+      <div style="font-weight:800;font-size:17px">GRIDDELTA <span style="font-weight:500;color:var(--muted);font-size:13px">| ІМПОРТ / ЕКСПОРТ</span></div>
+      <div style="font-size:11px;color:var(--muted)" id="hdrSub">ОС · РПС · порівняння з попереднім днем</div>
+    </div>
+    <a href="/" style="margin-left:12px;font-size:12px;color:#93c5fd;text-decoration:none;border:1px solid #243047;padding:6px 12px;border-radius:8px;white-space:nowrap">← Futures / Spot</a>
+  </div>
+  <div style="text-align:right">
+    <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Період</div>
+    <div style="font-weight:700;font-size:14px" id="hdrPeriod">—</div>
+  </div>
+</div>
+
+<div style="display:flex;gap:4px;margin-bottom:14px;flex-wrap:wrap">
+  <button class="tab active" data-tab="overview">Огляд + Δ дня</button>
+  <button class="tab" data-tab="hourly">Погодинка Δ</button>
+  <button class="tab" data-tab="daily">14 днів</button>
+  <button class="tab" data-tab="winners">Контрагенти Δ</button>
+</div>
+
+<!-- OVERVIEW -->
+<section id="tab-overview">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px" id="flowCards"></div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px" id="kpis"></div>
+
+  <div class="card" style="padding:14px 16px;margin-bottom:14px">
+    <h2 class="sec">НАПРЯМКИ · ОС / РПС · Δ ДО ПОПЕРЕДНЬОГО ДНЯ [МВт]</h2>
+    <div style="overflow-x:auto"><table class="cmp"><thead>
+      <tr>
+        <th>Напрямок</th><th>Тип</th>
+        <th style="text-align:right">ОС д−1</th><th style="text-align:right">ОС день</th><th style="text-align:center">Δ ОС</th>
+        <th style="text-align:right">РПС д−1</th><th style="text-align:right">РПС день</th><th style="text-align:center">Δ РПС</th>
+        <th style="text-align:right">Покриття</th>
+      </tr>
+    </thead><tbody id="cmpBody"></tbody></table></div>
+    <div style="margin-top:8px;font-size:11px;color:var(--muted)"><b>ОС</b> — offered · <b>РПС</b> — allocated / отримано · Покриття = РПС/ОС</div>
+  </div>
+
+  <div class="card" style="padding:14px 16px;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+      <h2 class="sec" style="margin:0">ОС ПО НАПРЯМКАХ · 14 ДНІВ</h2>
+      <div id="stackLegend" style="display:flex;flex-wrap:wrap;gap:5px"></div>
+    </div>
+    <div style="height:280px;position:relative"><canvas id="chartStack"></canvas></div>
+  </div>
+
+  <div class="card" style="padding:14px 16px">
+    <h2 class="sec">ІМПОРТ vs ЕКСПОРТ · ОС · 14 ДНІВ</h2>
+    <div style="height:220px;position:relative"><canvas id="chartFlow"></canvas></div>
+  </div>
+</section>
+
+<!-- HOURLY COMPARE -->
+<section id="tab-hourly" style="display:none">
+  <div class="card" style="padding:14px 16px;margin-bottom:14px">
+    <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin-bottom:12px">
+      <div>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Метрика</div>
+        <select id="hMetric">
+          <option value="oc">ОС (заявлено)</option>
+          <option value="rps" selected>РПС (акцепт)</option>
+        </select>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Режим</div>
+        <select id="hMode">
+          <option value="day">Усі напрямки · день</option>
+          <option value="compare">Усі напрямки · день vs д−1</option>
+          <option value="delta">Усі напрямки · лише Δ</option>
+        </select>
+      </div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+        <input type="checkbox" id="hLabels"/> Підписи
+      </label>
+      <div style="font-size:11px;color:var(--muted);margin-left:auto" id="hPeriod"></div>
+    </div>
+    <div id="hDirLegend" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px"></div>
+    <div style="height:340px;position:relative"><canvas id="chartHourly"></canvas></div>
+    <div style="font-size:11px;color:var(--muted);margin-top:8px">Клік по напрямку — увімк/вимк · суцільна = день · пунктир = попередній</div>
+  </div>
+
+  <div class="card" style="padding:14px 16px;margin-bottom:14px;overflow-x:auto">
+    <h2 class="sec">ПОГОДИННЕ Σ УСІ НАПРЯМКИ · ОС / РПС / Δ [МВт]</h2>
+    <div id="hDeltaTable"></div>
+  </div>
+
+  <div class="card" style="padding:14px 16px;overflow-x:auto">
+    <h2 class="sec">Δ ПО НАПРЯМКАХ · ПО ГОДИНАХ (день − д−1)</h2>
+    <div id="hDirDeltaTable"></div>
+  </div>
+</section>
+
+<!-- DAILY -->
+<section id="tab-daily" style="display:none">
+  <div class="card" style="padding:14px 16px;margin-bottom:14px;overflow-x:auto">
+    <h2 class="sec">ЗВЕДЕНА ТАБЛИЦЯ · ДОБОВІ ОБСЯГИ ОС [МВт]</h2>
+    <div id="dailyTable"></div>
+  </div>
+  <div class="card" style="padding:14px 16px;margin-bottom:14px">
+    <h2 class="sec">HEATMAP · % ПОКРИТТЯ (РПС/ОС)</h2>
+    <div id="heat" style="overflow-x:auto"></div>
+  </div>
+  <div class="card" style="padding:14px 16px">
+    <h2 class="sec">Δ ОС · ІМПОРТ / ЕКСПОРТ ДО ПОПЕРЕДНЬОГО ДНЯ</h2>
+    <div style="height:220px;position:relative"><canvas id="chartDelta"></canvas></div>
+  </div>
+</section>
+
+<!-- WINNERS -->
+<section id="tab-winners" style="display:none">
+  <div class="card" style="padding:14px 16px;margin-bottom:14px">
+    <h2 class="sec">КОНТРАГЕНТИ · ОБСЯГ ДЕНЬ vs ПОПЕРЕДНІЙ · Δ</h2>
+    <div style="overflow-x:auto" id="winTable"></div>
+  </div>
+  <div class="card" style="padding:14px 16px">
+    <h2 class="sec">ТОП ЗРОСТАННЯ / ПАДІННЯ</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px" id="winTop"></div>
+  </div>
+</section>
+
+</div>
+<script>
+let DATA = null;
+(ChartDataLabels);
+
+const DIR_COLOR = {"RO-UA":"#3b82f6","UA-RO":"#60a5fa","MD-UA":"#22c55e","UA-MD":"#4ade80","UA-PL":"#a855f7","SK-UA":"#f59e0b","UA-SK":"#fbbf24","HU-UA":"#ef4444","UA-HU":"#f87171"};
+const DIR_LABEL = {"RO-UA":"RO→UA","UA-RO":"UA→RO","MD-UA":"MD→UA","UA-MD":"UA→MD","UA-PL":"UA→PL","SK-UA":"SK→UA","UA-SK":"UA→SK","HU-UA":"HU→UA","UA-HU":"UA→HU"};
+const DIR_CHIP = {"RO-UA":["#3b82f6","RO"],"UA-RO":["#60a5fa","RO↑"],"MD-UA":["#22c55e","MD"],"UA-MD":["#4ade80","MD↑"],"UA-PL":["#a855f7","PL"],"SK-UA":["#f59e0b","SK"],"UA-SK":["#fbbf24","SK↑"],"HU-UA":["#ef4444","HU"],"UA-HU":["#f87171","HU↑"]};
+
+const chartDefaults = {
+  color: "#8b9bb4",
+  borderColor: "#243047",
+  grid: "#1a2336"
+};
+Chart.defaults.color = "#8b9bb4";
+Chart.defaults.borderColor = "#243047";
+
+let charts={}, vis={};
+
+function fmt(n,d=0){if(n==null||isNaN(n))return"—";return Number(n).toLocaleString("uk-UA",{maximumFractionDigits:d})}
+function deltaHtml(abs,pct){
+  if(abs==null)return'<span class="delta badge-flat">—</span>';
+  const up=abs>0,flat=abs===0;
+  const cls=flat?"badge-flat":(up?"badge-up":"badge-down");
+  const sign=up?"↑ +":(flat?"":"↓ ");
+  const p=pct!=null?` <span style="opacity:.75">${up?"+":""}${pct}%</span>`:"";
+  return`<span class="delta ${cls}">${sign}${fmt(Math.abs(abs))}${p}</span>`;
+}
+function covBg(p){
+  if(p==null)return"transparent";
+  if(p>=95)return"rgba(34,197,94,.35)";
+  if(p>=80)return"rgba(34,197,94,.2)";
+  if(p>=60)return"rgba(234,179,8,.25)";
+  return"rgba(239,68,68,.3)";
+}
+function destroy(k){if(charts[k]){charts[k].destroy();charts[k]=null}}
+
+document.querySelectorAll(".tab").forEach(b=>{
+  b.onclick=()=>{
+    document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
+    b.classList.add("active");
+    ["overview","hourly","daily","winners"].forEach(id=>{
+      document.getElementById("tab-"+id).style.display=id===b.dataset.tab?"":"none";
+    });
+  };
+});
+
+function renderOverview(){
+  const m=DATA.meta, f=DATA.flow, cmp=DATA.compare, dt=DATA.day_totals;
+  const last=dt[dt.length-1];
+  document.getElementById("hdrPeriod").textContent=m.d1+" → "+m.d2;
+  document.getElementById("hdrSub").textContent=m.range[0]+" … "+m.range[1]+" · Δ до попереднього дня";
+
+  const fd=f.delta;
+  document.getElementById("flowCards").innerHTML=`
+    <div class="flow-card imp">
+      <div style="font-size:11px;font-weight:700;color:#60a5fa;margin-bottom:8px">↓ ІМПОРТ В УКРАЇНУ</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div>
+          <div style="font-size:10px;color:var(--muted)">ОС (заявлено)</div>
+          <div style="font-size:20px;font-weight:800">${fmt(f.d2.imp_oc)} <span style="font-size:11px;font-weight:500;color:var(--muted)">МВт</span></div>
+          <div style="font-size:11px;color:var(--muted);margin:2px 0">було ${fmt(f.d1.imp_oc)}</div>
+          ${deltaHtml(fd.imp_oc.abs,fd.imp_oc.pct)}
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--muted)">РПС (акцепт)</div>
+          <div style="font-size:20px;font-weight:800">${fmt(f.d2.imp_rps)} <span style="font-size:11px;font-weight:500;color:var(--muted)">МВт</span></div>
+          <div style="font-size:11px;color:var(--muted);margin:2px 0">було ${fmt(f.d1.imp_rps)}</div>
+          ${deltaHtml(fd.imp_rps.abs,fd.imp_rps.pct)}
+        </div>
+      </div>
+    </div>
+    <div class="flow-card exp">
+      <div style="font-size:11px;font-weight:700;color:#4ade80;margin-bottom:8px">↑ ЕКСПОРТ З УКРАЇНИ</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div>
+          <div style="font-size:10px;color:var(--muted)">ОС (заявлено)</div>
+          <div style="font-size:20px;font-weight:800">${fmt(f.d2.exp_oc)} <span style="font-size:11px;font-weight:500;color:var(--muted)">МВт</span></div>
+          <div style="font-size:11px;color:var(--muted);margin:2px 0">було ${fmt(f.d1.exp_oc)}</div>
+          ${deltaHtml(fd.exp_oc.abs,fd.exp_oc.pct)}
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--muted)">РПС (акцепт)</div>
+          <div style="font-size:20px;font-weight:800">${fmt(f.d2.exp_rps)} <span style="font-size:11px;font-weight:500;color:var(--muted)">МВт</span></div>
+          <div style="font-size:11px;color:var(--muted);margin:2px 0">було ${fmt(f.d1.exp_rps)}</div>
+          ${deltaHtml(fd.exp_rps.abs,fd.exp_rps.pct)}
+        </div>
+      </div>
+    </div>`;
+
+  document.getElementById("kpis").innerHTML=`
+    <div class="card" style="padding:12px"><div style="font-size:10px;color:var(--muted)">Σ ОС день</div>
+      <div style="font-size:18px;font-weight:800">${fmt(last.oc)}</div>${deltaHtml(last.doc,null)}</div>
+    <div class="card" style="padding:12px"><div style="font-size:10px;color:var(--muted)">Σ РПС день</div>
+      <div style="font-size:18px;font-weight:800">${fmt(last.rps)}</div>${deltaHtml(last.drps,null)}</div>
+    <div class="card" style="padding:12px"><div style="font-size:10px;color:var(--muted)">Δ Імпорт ОС</div>
+      <div style="margin-top:4px">${deltaHtml(last.dimp,null)}</div></div>
+    <div class="card" style="padding:12px"><div style="font-size:10px;color:var(--muted)">Δ Експорт ОС</div>
+      <div style="margin-top:4px">${deltaHtml(last.dexp,null)}</div></div>`;
+
+  const ALL=["RO-UA","UA-RO","HU-UA","UA-HU","MD-UA","UA-MD","SK-UA","UA-SK","UA-PL"];
+  let tot={oc1:0,oc2:0,rps1:0,rps2:0};
+  document.getElementById("cmpBody").innerHTML=ALL.map(dir=>{
+    const c=cmp[dir];
+    const chip=DIR_CHIP[dir]||["#64748b",dir.slice(0,2)];
+    if(!c) return `<tr style="opacity:.4"><td><span class="chip" style="background:${chip[0]}">${chip[1]}</span>
+      <b style="margin-left:6px">${DIR_LABEL[dir]||dir}</b></td><td colspan="8" style="text-align:center;color:var(--muted);font-size:11px">немає в кеші</td></tr>`;
+    tot.oc1+=c.oc1;tot.oc2+=c.oc2;tot.rps1+=c.rps1;tot.rps2+=c.rps2;
+    const cov=c.oc2?Math.round(c.rps2/c.oc2*1000)/10:null;
+    const side=c.side==="import"?'<span style="color:#60a5fa;font-size:10px;font-weight:700">ІМПОРТ</span>':'<span style="color:#4ade80;font-size:10px;font-weight:700">ЕКСПОРТ</span>';
+    return `<tr>
+      <td><span class="chip" style="background:${chip[0]}">${chip[1]}</span><b style="margin-left:6px">${DIR_LABEL[dir]||dir}</b></td>
+      <td>${side}</td>
+      <td class="num" style="text-align:right">${fmt(c.oc1)}</td>
+      <td class="num" style="text-align:right">${fmt(c.oc2)}</td>
+      <td style="text-align:center">${deltaHtml(c.oc_d.abs,c.oc_d.pct)}</td>
+      <td class="num" style="text-align:right">${fmt(c.rps1)}</td>
+      <td class="num" style="text-align:right">${fmt(c.rps2)}</td>
+      <td style="text-align:center">${deltaHtml(c.rps_d.abs,c.rps_d.pct)}</td>
+      <td style="text-align:right"><span class="heat" style="background:${covBg(cov)}">${cov!=null?cov+"%":"—"}</span></td>
+    </tr>`;
+  }).join("")+`<tr style="background:rgba(255,255,255,.03);font-weight:700">
+    <td colspan="2">РАЗОМ</td>
+    <td class="num" style="text-align:right">${fmt(tot.oc1)}</td>
+    <td class="num" style="text-align:right">${fmt(tot.oc2)}</td>
+    <td style="text-align:center">${deltaHtml(tot.oc2-tot.oc1,tot.oc1?Math.round((tot.oc2-tot.oc1)/tot.oc1*1000)/10:null)}</td>
+    <td class="num" style="text-align:right">${fmt(tot.rps1)}</td>
+    <td class="num" style="text-align:right">${fmt(tot.rps2)}</td>
+    <td style="text-align:center">${deltaHtml(tot.rps2-tot.rps1,tot.rps1?Math.round((tot.rps2-tot.rps1)/tot.rps1*1000)/10:null)}</td>
+    <td style="text-align:right"><span class="heat" style="background:${covBg(tot.oc2?tot.rps2/tot.oc2*100:null)}">${tot.oc2?fmt(tot.rps2/tot.oc2*100,0)+"%":"—"}</span></td>
+  </tr>`;
+
+  const dirs=m.directions;
+  dirs.forEach(d=>{if(vis[d]===undefined)vis[d]=true});
+  document.getElementById("stackLegend").innerHTML=dirs.map(d=>`<button class="legend-btn ${vis[d]?"":"off"}" data-d="${d}"><span class="dot" style="background:${DIR_COLOR[d]}"></span>${DIR_LABEL[d]}</button>`).join("");
+  document.getElementById("stackLegend").querySelectorAll(".legend-btn").forEach(b=>{
+    b.onclick=()=>{vis[b.dataset.d]=!vis[b.dataset.d];b.classList.toggle("off",!vis[b.dataset.d]);drawStack()};
+  });
+  drawStack();
+
+  destroy("flow");
+  const labels=dt.map(x=>x.date.slice(5));
+  charts.flow=new Chart(document.getElementById("chartFlow"),{
+    type:"line",
+    data:{labels,datasets:[
+      {label:"Імпорт ОС",data:dt.map(x=>x.imp_oc),borderColor:"#3b82f6",backgroundColor:"rgba(59,130,246,.12)",fill:true,tension:.3,borderWidth:2,pointRadius:3,
+        datalabels:{align:"top",formatter:v=>v>0?fmt(v):"",font:{size:9,weight:"600"},color:"#93c5fd"}},
+      {label:"Експорт ОС",data:dt.map(x=>x.exp_oc),borderColor:"#22c55e",backgroundColor:"rgba(34,197,94,.1)",fill:true,tension:.3,borderWidth:2,pointRadius:3,
+        datalabels:{align:"bottom",formatter:v=>v>0?fmt(v):"",font:{size:9,weight:"600"},color:"#4ade80"}},
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{labels:{boxWidth:12,font:{size:11}}},datalabels:{display:true}},
+      scales:{y:{title:{display:true,text:"МВт",color:"#8b9bb4"},grid:{color:"#1a2336"},ticks:{color:"#8b9bb4"}},
+        x:{grid:{display:false},ticks:{color:"#8b9bb4"}}}}
+  });
+}
+
+function drawStack(){
+  const dt=DATA.day_totals, dirs=DATA.meta.directions;
+  destroy("stack");
+  charts.stack=new Chart(document.getElementById("chartStack"),{
+    type:"bar",
+    data:{labels:dt.map(x=>x.date.slice(5)),
+      datasets:dirs.filter(d=>vis[d]!==false).map(d=>({
+        label:DIR_LABEL[d],data:dt.map(x=>x.directions[d]?.oc??0),
+        backgroundColor:DIR_COLOR[d],stack:"s",borderWidth:0,borderRadius:2,datalabels:{display:false}
+      }))},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{mode:"index",intersect:false},
+        datalabels:{display:ctx=>ctx.dataset.data[ctx.dataIndex]>900,formatter:v=>fmt(v),color:"#fff",font:{size:9,weight:"700"}}},
+      scales:{x:{stacked:true,grid:{display:false},ticks:{color:"#8b9bb4"}},
+        y:{stacked:true,title:{display:true,text:"МВт",color:"#8b9bb4"},grid:{color:"#1a2336"},ticks:{color:"#8b9bb4"}}}}
+  });
+}
+
+function renderHourly(){
+  const m=DATA.meta;
+  document.getElementById("hPeriod").textContent=m.d1+" → "+m.d2;
+  const metricSel=document.getElementById("hMetric");
+  const modeSel=document.getElementById("hMode");
+  const labelsChk=document.getElementById("hLabels");
+  const dirs=m.directions;
+  dirs.forEach(d=>{if(vis["h"+d]===undefined)vis["h"+d]=true});
+
+  function draw(){
+    const metric=metricSel.value, mode=modeSel.value, showL=labelsChk.checked;
+    const hours=Array.from({length:24},(_,i)=>i+1);
+    const h1=DATA.hourly.d1||{}, h2=DATA.hourly.d2||{};
+
+    // legend
+    document.getElementById("hDirLegend").innerHTML=dirs.map(d=>
+      `<button class="legend-btn ${vis["h"+d]?"":"off"}" data-d="${d}"><span class="dot" style="background:${DIR_COLOR[d]}"></span>${DIR_LABEL[d]}</button>`
+    ).join("");
+    document.getElementById("hDirLegend").querySelectorAll(".legend-btn").forEach(b=>{
+      b.onclick=()=>{vis["h"+b.dataset.d]=!vis["h"+b.dataset.d];b.classList.toggle("off",!vis["h"+b.dataset.d]);draw()};
+    });
+
+    const active=dirs.filter(d=>vis["h"+d]!==false);
+    const series=a=>{const o={};(a||[]).forEach(r=>o[r.hour]=r[metric]);return hours.map(h=>o[h]??null)};
+
+    let datasets=[];
+    if(mode==="day"){
+      active.forEach(d=>{
+        datasets.push({label:DIR_LABEL[d],data:series(h2[d]),borderColor:DIR_COLOR[d],tension:.3,borderWidth:2,pointRadius:2,spanGaps:true,
+          datalabels:{display:showL,align:"top",formatter:v=>v!=null&&v>50?fmt(v):"",font:{size:8},color:DIR_COLOR[d]}});
+      });
+    } else if(mode==="compare"){
+      active.forEach(d=>{
+        datasets.push(
+          {label:DIR_LABEL[d]+" день",data:series(h2[d]),borderColor:DIR_COLOR[d],tension:.3,borderWidth:2.5,pointRadius:2,spanGaps:true,
+            datalabels:{display:false}},
+          {label:DIR_LABEL[d]+" д−1",data:series(h1[d]),borderColor:DIR_COLOR[d],borderDash:[5,4],tension:.3,borderWidth:1.5,pointRadius:0,spanGaps:true,
+            datalabels:{display:false}}
+        );
+      });
+    } else { // delta only
+      active.forEach(d=>{
+        const a=series(h1[d]), b=series(h2[d]);
+        const delta=hours.map((_,i)=>(b[i]!=null&&a[i]!=null)?b[i]-a[i]:null);
+        datasets.push({label:"Δ "+DIR_LABEL[d],data:delta,type:"bar",
+          backgroundColor:DIR_COLOR[d]+"99",borderRadius:2,order:0,
+          datalabels:{display:showL,formatter:v=>v?fmt(v):"",font:{size:8},color:"#e8eef8"}});
+      });
+    }
+
+    destroy("hourly");
+    charts.hourly=new Chart(document.getElementById("chartHourly"),{
+      type: mode==="delta"?"bar":"line",
+      data:{labels:hours.map(h=>String(h).padStart(2,"0")),datasets},
+      options:{responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},
+        plugins:{legend:{display:false},datalabels:{display:showL},
+          tooltip:{backgroundColor:"#141c2e",titleColor:"#e8eef8",bodyColor:"#cbd5e1",borderColor:"#243047",borderWidth:1}},
+        scales:{
+          x:{ticks:{color:"#8b9bb4"},grid:{color:"#1a2336"}},
+          y:{title:{display:true,text:mode==="delta"?"Δ МВт":"МВт",color:"#8b9bb4"},ticks:{color:"#8b9bb4"},grid:{color:"#1a2336"}}
+        }}
+    });
+
+    // Aggregate table all directions
+    const sumH=(src,key)=>hours.map(h=>{
+      let s=0,ok=false;
+      active.forEach(d=>{(src[d]||[]).forEach(r=>{if(r.hour===h&&r[key]!=null){s+=r[key];ok=true}})});
+      return ok?s:null;
+    });
+    const oc1=sumH(h1,"oc"), oc2=sumH(h2,"oc"), rps1=sumH(h1,"rps"), rps2=sumH(h2,"rps");
+    let t=`<table class="cmp"><thead><tr>
+      <th>Год</th>
+      <th style="text-align:right">ОС д−1</th><th style="text-align:right">ОС день</th><th style="text-align:center">Δ ОС</th>
+      <th style="text-align:right">РПС д−1</th><th style="text-align:right">РПС день</th><th style="text-align:center">Δ РПС</th>
+    </tr></thead><tbody>`;
+    hours.forEach((h,i)=>{
+      const doc=oc2[i]!=null&&oc1[i]!=null?oc2[i]-oc1[i]:null;
+      const dr=rps2[i]!=null&&rps1[i]!=null?rps2[i]-rps1[i]:null;
+      t+=`<tr>
+        <td style="font-family:ui-monospace;color:var(--muted)">${String(h).padStart(2,"0")}</td>
+        <td class="num" style="text-align:right">${fmt(oc1[i])}</td>
+        <td class="num" style="text-align:right">${fmt(oc2[i])}</td>
+        <td style="text-align:center">${deltaHtml(doc,oc1[i]?Math.round(doc/oc1[i]*1000)/10:null)}</td>
+        <td class="num" style="text-align:right">${fmt(rps1[i])}</td>
+        <td class="num" style="text-align:right">${fmt(rps2[i])}</td>
+        <td style="text-align:center">${deltaHtml(dr,rps1[i]?Math.round(dr/rps1[i]*1000)/10:null)}</td>
+      </tr>`;
+    });
+    const S=a=>a.reduce((x,y)=>x+(y||0),0);
+    t+=`<tr style="background:rgba(255,255,255,.04);font-weight:700">
+      <td>Σ</td>
+      <td class="num" style="text-align:right">${fmt(S(oc1))}</td>
+      <td class="num" style="text-align:right">${fmt(S(oc2))}</td>
+      <td style="text-align:center">${deltaHtml(S(oc2)-S(oc1),S(oc1)?Math.round((S(oc2)-S(oc1))/S(oc1)*1000)/10:null)}</td>
+      <td class="num" style="text-align:right">${fmt(S(rps1))}</td>
+      <td class="num" style="text-align:right">${fmt(S(rps2))}</td>
+      <td style="text-align:center">${deltaHtml(S(rps2)-S(rps1),S(rps1)?Math.round((S(rps2)-S(rps1))/S(rps1)*1000)/10:null)}</td>
+    </tr></tbody></table>`;
+    document.getElementById("hDeltaTable").innerHTML=t;
+
+    // Per-direction delta heatmap-like table for selected metric
+    let td=`<table class="cmp"><thead><tr><th>Год</th>`;
+    active.forEach(d=>td+=`<th style="text-align:center;color:${DIR_COLOR[d]}">${DIR_LABEL[d]}</th>`);
+    td+=`<th style="text-align:right">Σ Δ</th></tr></thead><tbody>`;
+    hours.forEach(h=>{
+      let sum=0;
+      td+=`<tr><td style="font-family:ui-monospace;color:var(--muted)">${String(h).padStart(2,"0")}</td>`;
+      active.forEach(d=>{
+        const a=(h1[d]||[]).find(r=>r.hour===h);
+        const b=(h2[d]||[]).find(r=>r.hour===h);
+        const v1=a?a[metric]:null, v2=b?b[metric]:null;
+        const dlt=(v1!=null&&v2!=null)?v2-v1:null;
+        if(dlt!=null)sum+=dlt;
+        const cls=dlt==null?"":(dlt>0?"color:#4ade80":dlt<0?"color:#f87171":"");
+        td+=`<td style="text-align:center" class="num"><span style="${cls}">${dlt!=null?(dlt>0?"+":"")+fmt(dlt):"—"}</span></td>`;
+      });
+      const sc=sum>0?"color:#4ade80":sum<0?"color:#f87171":"";
+      td+=`<td style="text-align:right" class="num"><span style="${sc}">${sum?(sum>0?"+":"")+fmt(sum):"—"}</span></td></tr>`;
+    });
+    td+=`</tbody></table>`;
+    document.getElementById("hDirDeltaTable").innerHTML=td;
+  }
+  metricSel.onchange=draw; modeSel.onchange=draw; labelsChk.onchange=draw; draw();
+}
+
+function renderDaily(){
+  const dt=DATA.day_totals, dirs=DATA.meta.directions;
+  let html=`<table class="cmp"><thead><tr><th>Дата</th>`;
+  dirs.forEach(d=>html+=`<th style="text-align:center;color:${DIR_COLOR[d]}">${DIR_LABEL[d]}</th>`);
+  html+=`<th style="text-align:right">РАЗОМ</th><th style="text-align:center">Δ</th>
+    <th style="text-align:center">Δ Імп</th><th style="text-align:center">Δ Експ</th></tr></thead><tbody>`;
+  dt.forEach(row=>{
+    html+=`<tr><td style="font-family:ui-monospace;color:var(--muted)">${row.date.slice(5)}</td>`;
+    dirs.forEach(d=>{const v=row.directions[d]?.oc;html+=`<td style="text-align:center" class="num">${v!=null?fmt(v):"—"}</td>`});
+    html+=`<td style="text-align:right" class="num">${fmt(row.oc)}</td>
+      <td style="text-align:center">${deltaHtml(row.doc,null)}</td>
+      <td style="text-align:center">${deltaHtml(row.dimp,null)}</td>
+      <td style="text-align:center">${deltaHtml(row.dexp,null)}</td></tr>`;
+  });
+  html+=`</tbody></table>`;
+  document.getElementById("dailyTable").innerHTML=html;
+
+  let heat=`<table class="cmp"><thead><tr><th>Дата</th>`;
+  dirs.forEach(d=>heat+=`<th style="text-align:center">${DIR_LABEL[d]}</th>`);
+  heat+=`</tr></thead><tbody>`;
+  dt.forEach(row=>{
+    heat+=`<tr><td style="font-family:ui-monospace;color:var(--muted)">${row.date.slice(5)}</td>`;
+    dirs.forEach(d=>{const c=row.directions[d]?.coverage;
+      heat+=`<td style="text-align:center"><span class="heat" style="background:${covBg(c)}">${c!=null?fmt(c,0)+"%":"—"}</span></td>`});
+    heat+=`</tr>`;
+  });
+  heat+=`</tbody></table>`;
+  document.getElementById("heat").innerHTML=heat;
+
+  destroy("delta");
+  charts.delta=new Chart(document.getElementById("chartDelta"),{
+    type:"bar",
+    data:{labels:dt.map(x=>x.date.slice(5)),datasets:[
+      {label:"Δ Імпорт",data:dt.map(x=>x.dimp??0),backgroundColor:"rgba(59,130,246,.55)",borderRadius:3,
+        datalabels:{anchor:"end",align:"top",formatter:v=>v?fmt(v):"",font:{size:9},color:"#93c5fd"}},
+      {label:"Δ Експорт",data:dt.map(x=>x.dexp??0),backgroundColor:"rgba(34,197,94,.5)",borderRadius:3,
+        datalabels:{anchor:"end",align:"top",formatter:v=>v?fmt(v):"",font:{size:9},color:"#4ade80"}},
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{labels:{boxWidth:12,font:{size:11}}},datalabels:{display:true}},
+      scales:{y:{title:{display:true,text:"Δ МВт",color:"#8b9bb4"},grid:{color:"#1a2336"},ticks:{color:"#8b9bb4"}},
+        x:{grid:{display:false},ticks:{color:"#8b9bb4"}}}}
+  });
+}
+
+function renderWinners(){
+  const w=DATA.winners_cmp||[], m=DATA.meta;
+  let t=`<table class="cmp"><thead><tr>
+    <th>#</th><th>Компанія</th>
+    <th style="text-align:right">${m.d1}</th>
+    <th style="text-align:right">${m.d2}</th>
+    <th style="text-align:center">Δ МВт</th>
+    <th style="text-align:center">Δ %</th>
+  </tr></thead><tbody>`;
+  w.forEach((x,i)=>{
+    t+=`<tr>
+      <td style="color:var(--muted)">${i+1}</td>
+      <td style="font-weight:600">${x.company}</td>
+      <td class="num" style="text-align:right">${fmt(x.v1,1)}</td>
+      <td class="num" style="text-align:right">${fmt(x.v2,1)}</td>
+      <td style="text-align:center">${deltaHtml(x.d.abs,null)}</td>
+      <td style="text-align:center">${x.d.pct!=null?`<span class="delta ${x.d.abs>0?"badge-up":x.d.abs<0?"badge-down":"badge-flat"}">${x.d.pct>0?"+":""}${x.d.pct}%</span>`:"—"}</td>
+    </tr>`;
+  });
+  t+=`</tbody></table>`;
+  document.getElementById("winTable").innerHTML=t;
+
+  const up=[...w].filter(x=>x.d.abs>0).sort((a,b)=>b.d.abs-a.d.abs).slice(0,8);
+  const down=[...w].filter(x=>x.d.abs<0).sort((a,b)=>a.d.abs-b.d.abs).slice(0,8);
+  document.getElementById("winTop").innerHTML=`
+    <div>
+      <div style="font-size:12px;font-weight:700;color:#4ade80;margin-bottom:8px">↑ Зростання</div>
+      ${up.map(x=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border)">
+        <span style="font-size:12px">${x.company}</span>${deltaHtml(x.d.abs,x.d.pct)}</div>`).join("")||"—"}
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:700;color:#f87171;margin-bottom:8px">↓ Зменшення</div>
+      ${down.map(x=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border)">
+        <span style="font-size:12px">${x.company}</span>${deltaHtml(x.d.abs,x.d.pct)}</div>`).join("")||"—"}
+    </div>`;
+}
+
+async function boot(){
+  try {
+    const bin=Uint8Array.from(atob("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"),c=>c.charCodeAt(0));
+    const stream=new Blob([bin]).stream().pipeThrough(new DecompressionStream("gzip"));
+    DATA=JSON.parse(await new Response(stream).text());
+  } catch(e) {
+    document.body.innerHTML = '<div style="padding:40px;color:#f87171;font-family:system-ui">Не вдалося завантажити дані: '+e+'</div>';
+    return;
+  }
+  renderOverview();
+  renderHourly();
+  renderDaily();
+  renderWinners();
+}
+boot();
+</script>
+</body>
+</html>
