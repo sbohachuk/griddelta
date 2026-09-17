@@ -12,9 +12,9 @@ export const DIR_GIDS: Record<string, string> = {
   "UA-RO": "869465484",
   "UA-MD": "1510170134",
   "SK-UA": "1227330641",
-  "UA-SK": "1689598728",
+  "UA-SK": "1543199022",
   "HU-UA": "1296612312",
-  "UA-HU": "1543199022",
+  "UA-HU": "1689598728",
 };
 
 const DIR_ORDER = Object.keys(DIR_GIDS);
