@@ -1,8 +1,7 @@
 /**
  * Nitro middleware: GET /api/import-export?d1=&d2=&refresh=1
- * Registered via serverDir — same pattern as grok-pwa middleware.
  */
-import { buildSnapshot, loadAllDirections } from "../lib/sheets-ie";
+import { buildSnapshot, loadAllDirections } from "../lib/sheets-ie.mjs";
 
 interface ApiEvent {
   url: URL;
@@ -25,7 +24,6 @@ export default async function importExportApiMiddleware(
       headers: {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
       },
     });
   }
@@ -54,10 +52,7 @@ export default async function importExportApiMiddleware(
       }),
       {
         status: 502,
-        headers: {
-          "Content-Type": "application/json; charset=utf-8",
-          "Access-Control-Allow-Origin": "*",
-        },
+        headers: { "Content-Type": "application/json; charset=utf-8" },
       },
     );
   }
