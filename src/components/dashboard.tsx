@@ -323,8 +323,8 @@ export function Dashboard() {
             <div>
               <CardTitle>Продукти · середнє по країнах</CardTitle>
               <CardDescription>
-                Оберіть одну або кілька країн (без UA). Графік показує середні Spot / Day / Week+WE /
-                Month. Якщо країна одна — додатково UA РДН.
+                Оберіть одну або кілька країн. Графік показує середні Spot / Day / Week+WE / Month +
+                UA РДН (завжди можна ввімкнути/вимкнути в легенді).
               </CardDescription>
             </div>
             {stats?.avg !== null && stats ? (
@@ -357,7 +357,7 @@ export function Dashboard() {
             <CardTitle>Усі зони · Spot + продукти + UA</CardTitle>
             <CardDescription>
               Режим «Продукти»: середні EU Spot / Day / Week+WE / Month + UA РДН. Режим «Країни»:
-              порівняння всіх зон за обраним продуктом (Spot · Day · Week+WE · Month). Перемикач €/₴
+              порівняння всіх зон за обраним продуктом + UA РДН і EU avg. Перемикач €/₴
               і курс НБУ.
             </CardDescription>
           </CardHeader>

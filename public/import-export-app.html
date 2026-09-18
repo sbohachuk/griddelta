@@ -22,6 +22,9 @@
   .chip{display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:22px;padding:0 6px;border-radius:6px;font-size:10px;font-weight:700;color:#fff}
   .tab{padding:8px 14px;border-radius:10px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;border:none;background:transparent}
   .tab.active{background:#1e3a5f;color:#93c5fd}
+  .side-btn{padding:5px 10px;border-radius:8px;font-size:11px;font-weight:600;color:var(--muted);cursor:pointer;border:1px solid var(--border);background:transparent}
+  .side-btn.active{background:#1e3a5f;color:#93c5fd;border-color:#1e3a5f}
+  .side-btn:hover:not(.active){background:rgba(255,255,255,.04);color:#e8eef8}
   .tab:hover:not(.active){background:rgba(255,255,255,.04);color:#e8eef8}
   table.cmp{width:100%;border-collapse:collapse;font-size:12.5px}
   table.cmp th{font-weight:600;color:var(--muted);text-align:left;padding:9px 7px;border-bottom:1px solid var(--border);font-size:10px;text-transform:uppercase;letter-spacing:.04em}
@@ -102,7 +105,12 @@
   <div class="card" style="padding:14px 16px;margin-bottom:14px">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
       <h2 class="sec" style="margin:0">ОС ПО НАПРЯМКАХ · 14 ДНІВ</h2>
-      <div id="stackLegend" style="display:flex;flex-wrap:wrap;gap:5px"></div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+        <button type="button" class="side-btn active" data-stack-side="all">Усі</button>
+        <button type="button" class="side-btn" data-stack-side="import">Імпорт</button>
+        <button type="button" class="side-btn" data-stack-side="export">Експорт</button>
+        <div id="stackLegend" style="display:flex;flex-wrap:wrap;gap:5px"></div>
+      </div>
     </div>
     <div style="height:280px;position:relative"><canvas id="chartStack"></canvas></div>
   </div>
@@ -136,6 +144,12 @@
       <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
         <input type="checkbox" id="hLabels"/> Підписи
       </label>
+      <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
+        <span style="font-size:10px;color:var(--muted)">Напрямок</span>
+        <button type="button" class="side-btn active" data-side="all" id="hSideAll">Усі</button>
+        <button type="button" class="side-btn" data-side="import" id="hSideImp">Імпорт</button>
+        <button type="button" class="side-btn" data-side="export" id="hSideExp">Експорт</button>
+      </div>
       <div style="font-size:11px;color:var(--muted);margin-left:auto" id="hPeriod"></div>
     </div>
     <div id="hDirLegend" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px"></div>
@@ -358,11 +372,35 @@ function renderOverview(){
 
   const dirs=m.directions;
   dirs.forEach(d=>{if(vis[d]===undefined)vis[d]=true});
-  document.getElementById("stackLegend").innerHTML=dirs.map(d=>`<button class="legend-btn ${vis[d]?"":"off"}" data-d="${d}"><span class="dot" style="background:${DIR_COLOR[d]}"></span>${DIR_LABEL[d]}</button>`).join("");
-  document.getElementById("stackLegend").querySelectorAll(".legend-btn").forEach(b=>{
-    b.onclick=()=>{vis[b.dataset.d]=!vis[b.dataset.d];b.classList.toggle("off",!vis[b.dataset.d]);drawStack()};
+  let stackSide = window._stackSide || "all";
+  function applyStackSide(side){
+    stackSide = side;
+    window._stackSide = side;
+    document.querySelectorAll("[data-stack-side]").forEach(b=>{
+      b.classList.toggle("active", b.dataset.stackSide === side);
+    });
+    dirs.forEach(d=>{
+      const imp = isImportDir(d);
+      if(side==="all") vis[d]=true;
+      else if(side==="import") vis[d]=imp;
+      else if(side==="export") vis[d]=!imp;
+    });
+    // rebuild legend
+    const sideDirs = dirs.filter(d=>{
+      if(stackSide==="all") return true;
+      const imp = isImportDir(d);
+      return stackSide==="import" ? imp : !imp;
+    });
+    document.getElementById("stackLegend").innerHTML=sideDirs.map(d=>`<button class="legend-btn ${vis[d]?"":"off"}" data-d="${d}"><span class="dot" style="background:${DIR_COLOR[d]}"></span>${DIR_LABEL[d]}</button>`).join("");
+    document.getElementById("stackLegend").querySelectorAll(".legend-btn").forEach(b=>{
+      b.onclick=()=>{vis[b.dataset.d]=!vis[b.dataset.d];b.classList.toggle("off",!vis[b.dataset.d]);drawStack()};
+    });
+    drawStack();
+  }
+  document.querySelectorAll("[data-stack-side]").forEach(b=>{
+    b.onclick=()=>applyStackSide(b.dataset.stackSide);
   });
-  drawStack();
+  applyStackSide(stackSide);
 
   destroy("flow");
   const labels=dt.map(x=>x.date.slice(5));
@@ -407,14 +445,42 @@ function renderHourly(){
   const labelsChk=document.getElementById("hLabels");
   const dirs=m.directions;
   dirs.forEach(d=>{if(vis["h"+d]===undefined)vis["h"+d]=true});
+  let hSide = window._hSide || "all";
+
+  function applySide(side){
+    hSide = side;
+    window._hSide = side;
+    document.querySelectorAll(".side-btn").forEach(b=>{
+      b.classList.toggle("active", b.dataset.side === side);
+    });
+    dirs.forEach(d=>{
+      const imp = isImportDir(d);
+      if(side==="all") vis["h"+d]=true;
+      else if(side==="import") vis["h"+d]=imp;
+      else if(side==="export") vis["h"+d]=!imp;
+    });
+    draw();
+  }
+  document.querySelectorAll(".side-btn").forEach(b=>{
+    b.onclick=()=>applySide(b.dataset.side);
+  });
+  // sync active class
+  document.querySelectorAll(".side-btn").forEach(b=>{
+    b.classList.toggle("active", b.dataset.side === hSide);
+  });
 
   function draw(){
     const metric=metricSel.value, mode=modeSel.value, showL=labelsChk.checked;
     const hours=Array.from({length:24},(_,i)=>i+1);
     const h1=DATA.hourly.d1||{}, h2=DATA.hourly.d2||{};
 
-    // legend
-    document.getElementById("hDirLegend").innerHTML=dirs.map(d=>
+    // legend (filtered by side group, but individual still toggleable)
+    const sideDirs = dirs.filter(d=>{
+      if(hSide==="all") return true;
+      const imp = isImportDir(d);
+      return hSide==="import" ? imp : !imp;
+    });
+    document.getElementById("hDirLegend").innerHTML=sideDirs.map(d=>
       `<button class="legend-btn ${vis["h"+d]?"":"off"}" data-d="${d}"><span class="dot" style="background:${DIR_COLOR[d]}"></span>${DIR_LABEL[d]}</button>`
     ).join("");
     document.getElementById("hDirLegend").querySelectorAll(".legend-btn").forEach(b=>{

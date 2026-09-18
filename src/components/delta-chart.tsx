@@ -183,15 +183,11 @@ export function DeltaChart({
       day: convert(avgProduct(report, date, zones, "day"), currency, rate),
       week: convert(avgProduct(report, date, zones, "week"), currency, rate),
       month: convert(avgProduct(report, date, zones, "month"), currency, rate),
-      ua:
-        zones.length === 1
-          ? convert(uaByDate.get(date) ?? null, currency, rate)
-          : null,
+      ua: convert(uaByDate.get(date) ?? null, currency, rate),
     };
   });
 
-  const keys =
-    selectedZones.length === 1 ? ["spot", "day", "week", "month", "ua"] : ["spot", "day", "week", "month"];
+  const keys = ["spot", "day", "week", "month", "ua"];
   const domain = yDomain(data, keys);
   const unit = unitLabel(currency);
   const [hidden, setHidden] = useState<Record<string, boolean>>({});
@@ -214,7 +210,7 @@ export function DeltaChart({
       ? "Оберіть хоча б одну країну"
       : selectedZones.length === 1
         ? `${ZONE_BY_ID[selectedZones[0]!]?.name ?? selectedZones[0]} · продукти + UA РДН`
-        : `Середнє по ${selectedZones.length} країнах: ${selectedZones.join(", ")}`;
+        : `Середнє по ${selectedZones.length} країнах: ${selectedZones.join(", ")} · + UA РДН`;
 
   return (
     <div className="space-y-3">
@@ -365,18 +361,16 @@ export function DeltaChart({
               name="month"
               hide={hidden.month}
             />
-            {selectedZones.length === 1 ? (
-              <Line
-                type="monotone"
-                dataKey="ua"
-                stroke={PRODUCT_COLORS.ua}
-                strokeWidth={2}
-                dot={false}
-                connectNulls
-                name="ua"
-                hide={hidden.ua}
-              />
-            ) : null}
+            <Line
+              type="monotone"
+              dataKey="ua"
+              stroke={PRODUCT_COLORS.ua}
+              strokeWidth={2}
+              dot={false}
+              connectNulls
+              name="ua"
+              hide={hidden.ua}
+            />
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -395,9 +389,9 @@ export function OverviewChart({ report }: { report: MarketReport }) {
 
   const allIds = useMemo(() => {
     const base = ZONES.map((z) => z.id) as string[];
-    if (countryProduct === "spot") return [...base, "UA", "EU"];
-    return base;
-  }, [countryProduct]);
+    // UA РДН і EU avg доступні завжди (для не-spot EU = середнє обраного продукту по зонах)
+    return [...base, "UA", "EU"];
+  }, []);
 
   const [enabled, setEnabled] = useState<Record<string, boolean>>(() =>
     Object.fromEntries([...ZONES.map((z) => z.id), "UA", "EU"].map((id) => [id, true])),
@@ -422,12 +416,19 @@ export function OverviewChart({ report }: { report: MarketReport }) {
       row[z.id] = convert(cellProduct(report.rows[date]?.[z.id], countryProduct), currency, rate);
     }
     const euUa = uaByDate.get(date);
+    // UA РДН завжди (spot UA); EU: для spot — офіційний EU avg, інакше середнє продукту по всіх зонах
+    row.UA = convert(euUa?.ua ?? null, currency, rate);
     if (countryProduct === "spot") {
-      row.UA = convert(euUa?.ua ?? null, currency, rate);
       row.EU = convert(euUa?.eu ?? null, currency, rate);
     } else {
-      row.UA = null;
-      row.EU = null;
+      const vals: number[] = [];
+      for (const z of ZONES) {
+        const v = cellProduct(report.rows[date]?.[z.id], countryProduct);
+        if (v != null) vals.push(v);
+      }
+      const euAvg =
+        vals.length ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100 : null;
+      row.EU = convert(euAvg, currency, rate);
     }
     return row;
   });
