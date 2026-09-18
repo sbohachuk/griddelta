@@ -25,6 +25,14 @@
   .side-btn{padding:5px 10px;border-radius:8px;font-size:11px;font-weight:600;color:var(--muted);cursor:pointer;border:1px solid var(--border);background:transparent}
   .side-btn.active{background:#1e3a5f;color:#93c5fd;border-color:#1e3a5f}
   .side-btn:hover:not(.active){background:rgba(255,255,255,.04);color:#e8eef8}
+  .seg{display:inline-flex;gap:2px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:999px;padding:2px}
+  .seg-btn{padding:6px 12px;border-radius:999px;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;border:none;background:transparent}
+  .seg-btn.active{background:#1e3a5f;color:#93c5fd}
+  .seg-btn:hover:not(.active){color:#e8eef8}
+  @media (max-width:900px){
+    #monthDualWrap{grid-template-columns:1fr !important}
+    #monthDualWrap > div[style*="width:2px"]{display:none}
+  }
   .tab:hover:not(.active){background:rgba(255,255,255,.04);color:#e8eef8}
   table.cmp{width:100%;border-collapse:collapse;font-size:12.5px}
   table.cmp th{font-weight:600;color:var(--muted);text-align:left;padding:9px 7px;border-bottom:1px solid var(--border);font-size:10px;text-transform:uppercase;letter-spacing:.04em}
@@ -253,42 +261,58 @@
 
 <!-- MONTHS COMPARE -->
 <section id="tab-months" style="display:none">
-  <div class="card" style="padding:14px 16px;margin-bottom:14px">
-    <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:end">
-      <div>
-        <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Місяць А</div>
-        <select id="monthA"></select>
+  <div class="card" style="padding:12px 16px;margin-bottom:14px">
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:center">
+      <select id="monthA" style="min-width:110px"></select>
+      <div class="seg" id="monthMetricSeg">
+        <button type="button" class="seg-btn active" data-m="oc">ОС</button>
+        <button type="button" class="seg-btn" data-m="rps">РПС</button>
+        <button type="button" class="seg-btn" data-m="imp">Імпорт</button>
+        <button type="button" class="seg-btn" data-m="exp">Експорт</button>
       </div>
-      <div>
-        <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Місяць Б</div>
-        <select id="monthB"></select>
+      <div class="seg" id="monthRangeSeg">
+        <button type="button" class="seg-btn active" data-r="10">10 днів</button>
+        <button type="button" class="seg-btn" data-r="20">20 днів</button>
+        <button type="button" class="seg-btn" data-r="month">Місяць</button>
       </div>
-      <div>
-        <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Метрика</div>
-        <select id="monthMetric">
-          <option value="oc">ОС</option>
-          <option value="rps">РПС</option>
-        </select>
+      <div class="seg" id="monthGrainSeg">
+        <button type="button" class="seg-btn active" data-g="day">По днях</button>
+        <button type="button" class="seg-btn" data-g="decade">Декади</button>
       </div>
-      <div style="font-size:11px;color:var(--muted);margin-left:auto" id="monthHint">Порівняння за наявними day_totals</div>
+      <div class="seg" id="monthChartTypeSeg">
+        <button type="button" class="seg-btn active" data-t="line">Лінії</button>
+        <button type="button" class="seg-btn" data-t="bar">Стовпчики</button>
+      </div>
+      <select id="monthB" style="min-width:110px"></select>
     </div>
+    <div style="text-align:center;font-size:11px;color:var(--muted);margin-top:8px" id="monthHint"></div>
   </div>
+
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px" id="monthKpis"></div>
+
   <div class="card" style="padding:14px 16px;margin-bottom:14px">
-    <h2 class="sec">ІМПОРТ / ЕКСПОРТ · СЕРЕДНЄ ЗА МІСЯЦЬ [МВт]</h2>
-    <div style="height:260px;position:relative"><canvas id="chartMonthFlow"></canvas></div>
+    <h2 class="sec" id="monthDualTitle" style="text-align:center">ПОРІВНЯННЯ МІСЯЦІВ · ПО ДНЯХ</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;position:relative" id="monthDualWrap">
+      <div style="height:320px;position:relative;padding-right:8px"><canvas id="chartMonthA"></canvas></div>
+      <div style="width:2px;background:var(--border);position:absolute;left:50%;top:8px;bottom:8px;transform:translateX(-50%);z-index:2"></div>
+      <div style="height:320px;position:relative;padding-left:8px"><canvas id="chartMonthB"></canvas></div>
+    </div>
+    <div id="monthDirLegend" style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:10px"></div>
   </div>
+
   <div class="card" style="padding:14px 16px;margin-bottom:14px">
-    <h2 class="sec">НАПРЯМКИ · СЕРЕДНЄ / СУМА ЗА МІСЯЦЬ</h2>
-    <div style="height:300px;position:relative"><canvas id="chartMonthDirs"></canvas></div>
+    <h2 class="sec">ІМПОРТ / ЕКСПОРТ · А vs Б</h2>
+    <div style="height:240px;position:relative"><canvas id="chartMonthFlow"></canvas></div>
   </div>
+
   <div class="card" style="padding:14px 16px;margin-bottom:14px;overflow-x:auto">
-    <h2 class="sec">ТАБЛИЦЯ · НАПРЯМКИ А vs Б</h2>
+    <h2 class="sec">ДАНІ · НАПРЯМКИ / ДНІ</h2>
     <div id="monthDirTable"></div>
   </div>
-  <div class="card" style="padding:14px 16px">
-    <h2 class="sec">ПОКРИТТЯ % · СЕРЕДНЄ ЗА МІСЯЦЬ</h2>
-    <div style="height:240px;position:relative"><canvas id="chartMonthCov"></canvas></div>
+
+  <div class="card" style="padding:14px 16px;overflow-x:auto">
+    <h2 class="sec">ТАБЛИЦЯ ЗНАЧЕНЬ · ДЕНЬ ЗА ДНЕМ</h2>
+    <div id="monthDayTable"></div>
   </div>
 </section>
 
@@ -1085,6 +1109,7 @@ function renderMonths(){
   const selA=document.getElementById("monthA");
   const selB=document.getElementById("monthB");
   if(!selA||!selB) return;
+
   const prevA=selA.value, prevB=selB.value;
   selA.innerHTML=months.map(m=>`<option value="${m}">${monthLabel(m)}</option>`).join("");
   selB.innerHTML=months.map(m=>`<option value="${m}">${monthLabel(m)}</option>`).join("");
@@ -1094,11 +1119,17 @@ function renderMonths(){
   } else if(months.length===1){
     selA.value=selB.value=months[0];
   }
-  const metric=(document.getElementById("monthMetric")||{}).value||"oc";
-  const a=aggregateMonth(selA.value, metric);
-  const b=aggregateMonth(selB.value, metric);
+
+  // read UI state from seg buttons
+  const metric = document.querySelector("#monthMetricSeg .seg-btn.active")?.dataset.m || "oc";
+  const range  = document.querySelector("#monthRangeSeg .seg-btn.active")?.dataset.r || "month";
+  const grain  = document.querySelector("#monthGrainSeg .seg-btn.active")?.dataset.g || "day";
+  const ctype  = document.querySelector("#monthChartTypeSeg .seg-btn.active")?.dataset.t || "line";
+
+  const a=aggregateMonth(selA.value, metric==="rps"?"rps":"oc");
+  const b=aggregateMonth(selB.value, metric==="rps"?"rps":"oc");
   const hint=document.getElementById("monthHint");
-  if(hint) hint.textContent = `${a.n} дн. vs ${b.n} дн. · метрика ${metric.toUpperCase()} · з day_totals`;
+  if(hint) hint.textContent = `${monthLabel(selA.value)} (${a.n} дн.)  vs  ${monthLabel(selB.value)} (${b.n} дн.) · ${metric.toUpperCase()} · ${range==="month"?"повний місяць":"перші "+range+" днів"} · ${grain==="day"?"по днях":"декади"}`;
 
   const pct=(x,y)=> y ? Math.round((x-y)/Math.abs(y)*1000)/10 : null;
   const kpis=document.getElementById("monthKpis");
@@ -1106,14 +1137,13 @@ function renderMonths(){
     const cells=[
       ["Імпорт Σ", b.impSum, a.impSum, "#60a5fa"],
       ["Експорт Σ", b.expSum, a.expSum, "#4ade80"],
-      ["Імпорт сер/день", b.impAvg, a.impAvg, "#93c5fd"],
-      ["Експорт сер/день", b.expAvg, a.expAvg, "#86efac"],
+      ["Імп сер/д", b.impAvg, a.impAvg, "#93c5fd"],
+      ["Експ сер/д", b.expAvg, a.expAvg, "#86efac"],
       ["ОС Σ", b.ocSum, a.ocSum, "#e8eef8"],
       ["РПС Σ", b.rpsSum, a.rpsSum, "#c4b5fd"],
     ];
     kpis.innerHTML=cells.map(([lab,v2,v1,col])=>{
-      const d=v2-v1;
-      const p=pct(v2,v1);
+      const d=v2-v1; const p=pct(v2,v1);
       return `<div class="card" style="padding:12px 14px">
         <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em">${lab}</div>
         <div style="font-size:18px;font-weight:800;color:${col};margin:4px 0">${fmt(v2)}</div>
@@ -1123,7 +1153,188 @@ function renderMonths(){
     }).join("");
   }
 
-  // Flow chart
+  // legend toggle state
+  if(!window._monthDirVis){
+    window._monthDirVis={};
+    (DATA.meta.directions||[]).forEach(d=>window._monthDirVis[d]=true);
+  }
+  const dirs=(DATA.meta.directions||[]).filter(d=>window._monthDirVis[d]!==false);
+  const allDirs=DATA.meta.directions||[];
+
+  document.getElementById("monthDirLegend").innerHTML=allDirs.map(d=>{
+    const on=window._monthDirVis[d]!==false;
+    return `<button type="button" class="legend-btn ${on?"":"off"}" data-md="${d}"><span class="dot" style="background:${DIR_COLOR[d]}"></span>${DIR_LABEL[d]||d}</button>`;
+  }).join("");
+  document.getElementById("monthDirLegend").querySelectorAll(".legend-btn").forEach(btn=>{
+    btn.onclick=()=>{
+      const d=btn.dataset.md;
+      window._monthDirVis[d]=!(window._monthDirVis[d]!==false);
+      renderMonths();
+    };
+  });
+
+  const title=document.getElementById("monthDualTitle");
+  if(title) title.textContent = grain==="decade"
+    ? "ПОРІВНЯННЯ МІСЯЦІВ · ПО ДЕКАДАХ"
+    : "ПОРІВНЯННЯ МІСЯЦІВ · ПО ДНЯХ";
+
+  function sliceRows(agg){
+    let rows=[...agg.rows].sort((x,y)=>x.date.localeCompare(y.date));
+    if(range==="10") rows=rows.slice(0,10);
+    else if(range==="20") rows=rows.slice(0,20);
+    return rows;
+  }
+
+  function daySeries(agg, dirList){
+    const rows=sliceRows(agg);
+    if(grain==="decade"){
+      // group 1-10, 11-20, 21-end
+      const buckets=[{lab:"1–10",vals:{}},{lab:"11–20",vals:{}},{lab:"21–кін",vals:{}}];
+      dirList.forEach(d=>{ buckets.forEach(b=>b.vals[d]=[]); });
+      rows.forEach(row=>{
+        const day=parseInt(row.date.slice(8,10),10);
+        const bi=day<=10?0:day<=20?1:2;
+        dirList.forEach(d=>{
+          const cell=row.directions?.[d];
+          let v=null;
+          if(metric==="imp"){
+            // only import dirs contribute to a single "imp" series later
+            v = cell ? (isImportDir(d)?(cell.oc||0):null) : null;
+          } else if(metric==="exp"){
+            v = cell ? (!isImportDir(d)?(cell.oc||0):null) : null;
+          } else if(metric==="rps"){
+            v = cell ? (cell.rps??null) : null;
+          } else {
+            v = cell ? (cell.oc??null) : null;
+          }
+          if(v!=null) buckets[bi].vals[d].push(v);
+        });
+      });
+      const labels=buckets.map(b=>b.lab);
+      const datasets=dirList.map(d=>({
+        key:d,
+        data:buckets.map(b=>{
+          const arr=b.vals[d];
+          if(!arr.length) return null;
+          return Math.round(arr.reduce((s,x)=>s+x,0)/arr.length*10)/10;
+        })
+      }));
+      return {labels, datasets, rows:buckets.map(b=>({date:b.lab}))};
+    }
+    // day grain
+    const labels=rows.map(r=>r.date.slice(8)); // DD
+    const datasets=dirList.map(d=>({
+      key:d,
+      data:rows.map(row=>{
+        const cell=row.directions?.[d];
+        if(!cell) return null;
+        if(metric==="rps") return cell.rps??null;
+        return cell.oc??null;
+      })
+    }));
+    return {labels, datasets, rows};
+  }
+
+  // For imp/exp metric: aggregate all import or export dirs into one series each + keep dir lines for oc/rps
+  function buildChartData(agg){
+    if(metric==="imp" || metric==="exp"){
+      const rows=sliceRows(agg);
+      if(grain==="decade"){
+        const buckets=[{lab:"1–10",arr:[]},{lab:"11–20",arr:[]},{lab:"21–кін",arr:[]}];
+        rows.forEach(row=>{
+          const day=parseInt(row.date.slice(8,10),10);
+          const bi=day<=10?0:day<=20?1:2;
+          let v=0;
+          if(metric==="imp") v = metric==="imp" ? (row.imp_oc||0) : 0;
+          // use rps if needed - for imp/exp use oc volumes primarily; if user selected via metric buttons
+          v = metric==="imp" ? (row.imp_oc||0) : (row.exp_oc||0);
+          buckets[bi].arr.push(v);
+        });
+        return {
+          labels:buckets.map(b=>b.lab),
+          datasets:[{
+            key:metric,
+            label: metric==="imp"?"Імпорт":"Експорт",
+            color: metric==="imp"?"#60a5fa":"#4ade80",
+            data:buckets.map(b=>b.arr.length?Math.round(b.arr.reduce((s,x)=>s+x,0)/b.arr.length*10)/10:null)
+          }],
+          rows:buckets.map(b=>({date:b.lab}))
+        };
+      }
+      return {
+        labels:rows.map(r=>r.date.slice(8)),
+        datasets:[{
+          key:metric,
+          label: metric==="imp"?"Імпорт":"Експорт",
+          color: metric==="imp"?"#60a5fa":"#4ade80",
+          data:rows.map(r=> metric==="imp"?(r.imp_oc||0):(r.exp_oc||0))
+        }],
+        rows
+      };
+    }
+    const s=daySeries(agg, dirs);
+    return {
+      labels:s.labels,
+      datasets:s.datasets.map(ds=>({
+        key:ds.key,
+        label:DIR_LABEL[ds.key]||ds.key,
+        color:DIR_COLOR[ds.key]||"#94a3b8",
+        data:ds.data
+      })),
+      rows:s.rows
+    };
+  }
+
+  function paintSide(canvasId, chartKey, agg, ym){
+    const cd=buildChartData(agg);
+    destroy(chartKey);
+    const el=document.getElementById(canvasId);
+    if(!el) return;
+    charts[chartKey]=new Chart(el,{
+      type: ctype==="bar"?"bar":"line",
+      data:{
+        labels:cd.labels,
+        datasets:cd.datasets.map(ds=>({
+          label:ds.label,
+          data:ds.data,
+          borderColor:ds.color,
+          backgroundColor: ctype==="bar" ? ds.color+"99" : ds.color+"22",
+          borderWidth: ctype==="bar"?0:2,
+          borderRadius: ctype==="bar"?3:0,
+          tension:.3,
+          pointRadius: ctype==="bar"?0:2,
+          fill: ctype!=="bar",
+          spanGaps:true,
+          datalabels:{
+            display: (ctx)=> ctype==="bar" && ctx.dataset.data[ctx.dataIndex]>0,
+            anchor:"end", align:"top",
+            formatter:v=>v!=null?fmt(v,0):"",
+            font:{size:8,weight:"600"}, color:"#cbd5e1"
+          }
+        }))
+      },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{
+          legend:{display:false},
+          datalabels:{display:ctype==="bar"},
+          title:{display:true, text:monthLabel(ym), color:"#e8eef8", font:{size:13, weight:"700"}},
+          tooltip:{backgroundColor:"#141c2e", titleColor:"#e8eef8", bodyColor:"#cbd5e1",
+            callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.raw)}`}}
+        },
+        scales:{
+          x:{ticks:{color:"#8b9bb4", maxRotation:0}, grid:{color:"#1a2336"}},
+          y:{title:{display:true,text:"МВт",color:"#8b9bb4"}, ticks:{color:"#8b9bb4"}, grid:{color:"#1a2336"}}
+        }
+      }
+    });
+    return cd;
+  }
+
+  const cdA=paintSide("chartMonthA","monthA", a, selA.value);
+  const cdB=paintSide("chartMonthB","monthB", b, selB.value);
+
+  // Flow summary chart
   destroy("monthFlow");
   charts.monthFlow=new Chart(document.getElementById("chartMonthFlow"),{
     type:"bar",
@@ -1131,9 +1342,11 @@ function renderMonths(){
       labels:["Імпорт Σ","Експорт Σ","Імп сер/д","Експ сер/д"],
       datasets:[
         {label:monthLabel(a.ym), data:[a.impSum,a.expSum,a.impAvg,a.expAvg],
-          backgroundColor:"rgba(148,163,184,.45)", borderRadius:4, datalabels:{display:true,anchor:"end",align:"top",formatter:v=>fmt(v),font:{size:9},color:"#94a3b8"}},
+          backgroundColor:"rgba(148,163,184,.45)", borderRadius:4,
+          datalabels:{anchor:"end",align:"top",formatter:v=>fmt(v),font:{size:9},color:"#94a3b8"}},
         {label:monthLabel(b.ym), data:[b.impSum,b.expSum,b.impAvg,b.expAvg],
-          backgroundColor:"rgba(96,165,250,.55)", borderRadius:4, datalabels:{display:true,anchor:"end",align:"top",formatter:v=>fmt(v),font:{size:9},color:"#93c5fd"}},
+          backgroundColor:"rgba(96,165,250,.55)", borderRadius:4,
+          datalabels:{anchor:"end",align:"top",formatter:v=>fmt(v),font:{size:9},color:"#93c5fd"}},
       ]
     },
     options:{responsive:true,maintainAspectRatio:false,
@@ -1142,28 +1355,7 @@ function renderMonths(){
         x:{grid:{display:false},ticks:{color:"#8b9bb4"}}}}
   });
 
-  // Directions chart
-  const dirs=DATA.meta.directions||[];
-  destroy("monthDirs");
-  charts.monthDirs=new Chart(document.getElementById("chartMonthDirs"),{
-    type:"bar",
-    data:{
-      labels:dirs.map(d=>DIR_LABEL[d]||d),
-      datasets:[
-        {label:monthLabel(a.ym)+" сер/д", data:dirs.map(d=>a.dirAvg[d]||0),
-          backgroundColor:dirs.map(d=>isImportDir(d)?"rgba(59,130,246,.35)":"rgba(34,197,94,.35)"), borderRadius:3, datalabels:{display:false}},
-        {label:monthLabel(b.ym)+" сер/д", data:dirs.map(d=>b.dirAvg[d]||0),
-          backgroundColor:dirs.map(d=>isImportDir(d)?"rgba(59,130,246,.7)":"rgba(34,197,94,.7)"), borderRadius:3, datalabels:{display:false}},
-      ]
-    },
-    options:{responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{labels:{boxWidth:12,font:{size:11}}},datalabels:{display:false},
-        tooltip:{callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.raw)}`}}},
-      scales:{y:{title:{display:true,text:"МВт / день",color:"#8b9bb4"},grid:{color:"#1a2336"},ticks:{color:"#8b9bb4"}},
-        x:{grid:{display:false},ticks:{color:"#8b9bb4",maxRotation:45}}}}
-  });
-
-  // Direction table
+  // Direction comparison table (avg)
   let th=`<table class="cmp"><thead><tr>
     <th>Напрямок</th><th>Тип</th>
     <th style="text-align:right">${monthLabel(a.ym)} сер</th>
@@ -1174,7 +1366,7 @@ function renderMonths(){
     <th style="text-align:center">Покр. А</th>
     <th style="text-align:center">Покр. Б</th>
   </tr></thead><tbody>`;
-  dirs.forEach(d=>{
+  allDirs.forEach(d=>{
     const side=isImportDir(d)?'<span style="color:#60a5fa">ІМПОРТ</span>':'<span style="color:#4ade80">ЕКСПОРТ</span>';
     const va=a.dirAvg[d]||0, vb=b.dirAvg[d]||0;
     const sa=a.dirSum[d]||0, sb=b.dirSum[d]||0;
@@ -1194,22 +1386,43 @@ function renderMonths(){
   th+=`</tbody></table>`;
   document.getElementById("monthDirTable").innerHTML=th;
 
-  // Coverage chart
-  destroy("monthCov");
-  charts.monthCov=new Chart(document.getElementById("chartMonthCov"),{
-    type:"bar",
-    data:{
-      labels:dirs.map(d=>DIR_LABEL[d]||d),
-      datasets:[
-        {label:monthLabel(a.ym), data:dirs.map(d=>a.covAvg[d]), backgroundColor:"rgba(148,163,184,.45)", borderRadius:3, datalabels:{display:false}},
-        {label:monthLabel(b.ym), data:dirs.map(d=>b.covAvg[d]), backgroundColor:"rgba(234,179,8,.55)", borderRadius:3, datalabels:{display:false}},
-      ]
-    },
-    options:{responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{labels:{boxWidth:12,font:{size:11}}},datalabels:{display:false}},
-      scales:{y:{min:0,max:100,title:{display:true,text:"%",color:"#8b9bb4"},grid:{color:"#1a2336"},ticks:{color:"#8b9bb4"}},
-        x:{grid:{display:false},ticks:{color:"#8b9bb4",maxRotation:45}}}}
+  // Day-by-day values table (aligned by day-of-month)
+  const rowsA=sliceRows(a), rowsB=sliceRows(b);
+  const byDayA={}, byDayB={};
+  rowsA.forEach(r=>{ byDayA[r.date.slice(8)]=r; });
+  rowsB.forEach(r=>{ byDayB[r.date.slice(8)]=r; });
+  const days=[...new Set([...Object.keys(byDayA),...Object.keys(byDayB)])].sort();
+  let dtHtml=`<table class="cmp"><thead><tr>
+    <th>День</th>
+    <th style="text-align:right;color:#94a3b8">А Імп</th>
+    <th style="text-align:right;color:#94a3b8">А Експ</th>
+    <th style="text-align:right;color:#94a3b8">А ОС</th>
+    <th style="text-align:right;color:#60a5fa">Б Імп</th>
+    <th style="text-align:right;color:#60a5fa">Б Експ</th>
+    <th style="text-align:right;color:#60a5fa">Б ОС</th>
+    <th style="text-align:center">Δ Імп</th>
+    <th style="text-align:center">Δ Експ</th>
+  </tr></thead><tbody>`;
+  days.forEach(dd=>{
+    const ra=byDayA[dd], rb=byDayB[dd];
+    const ai=ra?.imp_oc??null, ae=ra?.exp_oc??null, ao=ra?.oc??null;
+    const bi=rb?.imp_oc??null, be=rb?.exp_oc??null, bo=rb?.oc??null;
+    const di=(ai!=null&&bi!=null)?bi-ai:null;
+    const de=(ae!=null&&be!=null)?be-ae:null;
+    dtHtml+=`<tr>
+      <td style="font-family:ui-monospace;color:var(--muted)">${dd}</td>
+      <td class="num" style="text-align:right">${fmt(ai)}</td>
+      <td class="num" style="text-align:right">${fmt(ae)}</td>
+      <td class="num" style="text-align:right">${fmt(ao)}</td>
+      <td class="num" style="text-align:right">${fmt(bi)}</td>
+      <td class="num" style="text-align:right">${fmt(be)}</td>
+      <td class="num" style="text-align:right">${fmt(bo)}</td>
+      <td style="text-align:center">${deltaHtml(di,null)}</td>
+      <td style="text-align:center">${deltaHtml(de,null)}</td>
+    </tr>`;
   });
+  dtHtml+=`</tbody></table>`;
+  document.getElementById("monthDayTable").innerHTML=dtHtml;
 }
 
 async function boot(d1, d2, refresh){
@@ -1250,7 +1463,7 @@ async function boot(d1, d2, refresh){
     }
 
     // destroy old charts before re-render
-    ["stack","flow","hourly","delta","winHourly","monthFlow","monthDirs","monthCov"].forEach(k => { try { destroy(k); } catch(e){} });
+    ["stack","flow","hourly","delta","winHourly","monthFlow","monthDirs","monthCov","monthA","monthB"].forEach(k => { try { destroy(k); } catch(e){} });
     renderOverview();
     renderHourly();
     renderDaily();
@@ -1282,10 +1495,23 @@ function wireDatePickers(){
   if(whSide) whSide.onchange=()=>drawWinHourly();
   const mA=document.getElementById("monthA");
   const mB=document.getElementById("monthB");
-  const mM=document.getElementById("monthMetric");
   if(mA) mA.onchange=()=>renderMonths();
   if(mB) mB.onchange=()=>renderMonths();
-  if(mM) mM.onchange=()=>renderMonths();
+  function wireSeg(id){
+    const root=document.getElementById(id);
+    if(!root) return;
+    root.querySelectorAll(".seg-btn").forEach(btn=>{
+      btn.onclick=()=>{
+        root.querySelectorAll(".seg-btn").forEach(b=>b.classList.remove("active"));
+        btn.classList.add("active");
+        renderMonths();
+      };
+    });
+  }
+  wireSeg("monthMetricSeg");
+  wireSeg("monthRangeSeg");
+  wireSeg("monthGrainSeg");
+  wireSeg("monthChartTypeSeg");
 
   const selA = document.getElementById("dateA");
   const selB = document.getElementById("dateB");
