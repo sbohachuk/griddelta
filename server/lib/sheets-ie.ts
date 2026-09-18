@@ -366,9 +366,9 @@ export async function buildSnapshot(d1?: string, d2?: string) {
     })
     .sort((a, b) => Math.abs(b.d.abs) - Math.abs(a.d.abs));
 
-  // day_totals: last 14 calendar dates up to day2
+  // day_totals: last ~92 calendar dates up to day2 (для порівняння місяців)
   const endIdx = allDates.indexOf(day2);
-  const startIdx = Math.max(0, endIdx - 13);
+  const startIdx = Math.max(0, endIdx - 91);
   const window = allDates.slice(startIdx, endIdx + 1);
   const day_totals = [];
   let prev: Record<string, number> | null = null;

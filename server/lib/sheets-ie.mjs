@@ -301,7 +301,7 @@ async function buildSnapshot(d1, d2) {
     };
   }).sort((a, b) => Math.abs(b.d.abs) - Math.abs(a.d.abs));
   const endIdx = allDates.indexOf(day2);
-  const startIdx = Math.max(0, endIdx - 13);
+  const startIdx = Math.max(0, endIdx - 91);
   const window = allDates.slice(startIdx, endIdx + 1);
   const day_totals = [];
   let prev = null;

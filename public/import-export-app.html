@@ -81,6 +81,7 @@
   <button class="tab" data-tab="hourly">Погодинка Δ</button>
   <button class="tab" data-tab="daily">14 днів</button>
   <button class="tab" data-tab="winners">Контрагенти Δ</button>
+  <button class="tab" data-tab="months">Місяці</button>
 </div>
 
 <!-- OVERVIEW -->
@@ -230,6 +231,65 @@
     <h2 class="sec">ТОП ЗРОСТАННЯ / ПАДІННЯ</h2>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px" id="winTop"></div>
   </div>
+  <div class="card" id="winHourlyPanel" style="padding:14px 16px;margin-top:14px;display:none">
+    <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
+      <h2 class="sec" style="margin:0" id="winHourlyTitle">ПОГОДИНКА · КОНТРАГЕНТ</h2>
+      <button type="button" id="winHourlyClose" style="background:#0b1220;border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:#93c5fd;font-size:12px;cursor:pointer">Закрити</button>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px">
+      <span style="font-size:10px;color:var(--muted)">Напрямок</span>
+      <select id="winHourlyDir"><option value="all">Усі</option></select>
+      <span style="font-size:10px;color:var(--muted)">Сторона</span>
+      <select id="winHourlySide">
+        <option value="all">Усі</option>
+        <option value="import">Імпорт</option>
+        <option value="export">Експорт</option>
+      </select>
+    </div>
+    <div style="height:300px;position:relative"><canvas id="chartWinHourly"></canvas></div>
+    <div style="font-size:11px;color:var(--muted);margin-top:8px">Суцільна = день · пунктир = д−1 · клік по рядку таблиці відкриває погодинку</div>
+  </div>
+</section>
+
+<!-- MONTHS COMPARE -->
+<section id="tab-months" style="display:none">
+  <div class="card" style="padding:14px 16px;margin-bottom:14px">
+    <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:end">
+      <div>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Місяць А</div>
+        <select id="monthA"></select>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Місяць Б</div>
+        <select id="monthB"></select>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Метрика</div>
+        <select id="monthMetric">
+          <option value="oc">ОС</option>
+          <option value="rps">РПС</option>
+        </select>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-left:auto" id="monthHint">Порівняння за наявними day_totals</div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px" id="monthKpis"></div>
+  <div class="card" style="padding:14px 16px;margin-bottom:14px">
+    <h2 class="sec">ІМПОРТ / ЕКСПОРТ · СЕРЕДНЄ ЗА МІСЯЦЬ [МВт]</h2>
+    <div style="height:260px;position:relative"><canvas id="chartMonthFlow"></canvas></div>
+  </div>
+  <div class="card" style="padding:14px 16px;margin-bottom:14px">
+    <h2 class="sec">НАПРЯМКИ · СЕРЕДНЄ / СУМА ЗА МІСЯЦЬ</h2>
+    <div style="height:300px;position:relative"><canvas id="chartMonthDirs"></canvas></div>
+  </div>
+  <div class="card" style="padding:14px 16px;margin-bottom:14px;overflow-x:auto">
+    <h2 class="sec">ТАБЛИЦЯ · НАПРЯМКИ А vs Б</h2>
+    <div id="monthDirTable"></div>
+  </div>
+  <div class="card" style="padding:14px 16px">
+    <h2 class="sec">ПОКРИТТЯ % · СЕРЕДНЄ ЗА МІСЯЦЬ</h2>
+    <div style="height:240px;position:relative"><canvas id="chartMonthCov"></canvas></div>
+  </div>
 </section>
 
 </div>
@@ -273,7 +333,7 @@ document.querySelectorAll(".tab").forEach(b=>{
   b.onclick=()=>{
     document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
     b.classList.add("active");
-    ["overview","hourly","daily","winners"].forEach(id=>{
+    ["overview","hourly","daily","winners","months"].forEach(id=>{
       document.getElementById("tab-"+id).style.display=id===b.dataset.tab?"":"none";
     });
   };
@@ -853,6 +913,9 @@ function renderWinners(){
   });
   t+=`</tbody></table>`;
   document.getElementById("winTable").innerHTML=t || "—";
+  document.querySelectorAll(".win-row").forEach(tr=>{
+    tr.onclick=()=>openWinHourly(tr.dataset.company);
+  });
 
   // side totals
   const sumImp1=list.reduce((s,x)=>s+(x.imp?.v1||0),0);
@@ -892,6 +955,263 @@ function renderWinners(){
 }
 
 
+
+let _winCompany = null;
+
+function companyHourlySeries(company, side, dirF){
+  const h1=DATA.hourly?.d1||{}, h2=DATA.hourly?.d2||{};
+  const dirs=(DATA.meta.directions||[]).filter(d=>{
+    if(dirF && dirF!=="all" && d!==dirF) return false;
+    if(side==="import") return isImportDir(d);
+    if(side==="export") return !isImportDir(d);
+    return true;
+  });
+  const hours=Array.from({length:24},(_,i)=>i+1);
+  function series(hourly){
+    return hours.map(h=>{
+      let s=0, ok=false;
+      dirs.forEach(d=>{
+        const row=(hourly[d]||[]).find(r=>r.hour===h);
+        if(!row) return;
+        (row.winners||[]).forEach(w=>{
+          if(w.company===company && w.volume!=null){ s+=w.volume; ok=true; }
+        });
+      });
+      return ok?Math.round(s*10)/10:null;
+    });
+  }
+  return { hours, d1: series(h1), d2: series(h2), dirs };
+}
+
+function openWinHourly(company){
+  _winCompany = company;
+  const panel=document.getElementById("winHourlyPanel");
+  if(!panel) return;
+  panel.style.display="";
+  document.getElementById("winHourlyTitle").textContent = "ПОГОДИНКА · " + company;
+  // fill dirs that this company appears in
+  const sel=document.getElementById("winHourlyDir");
+  const cur=sel.value||"all";
+  const seen=new Set();
+  ["d1","d2"].forEach(dk=>{
+    const hourly=DATA.hourly?.[dk]||{};
+    Object.keys(hourly).forEach(d=>{
+      (hourly[d]||[]).forEach(r=>{
+        (r.winners||[]).forEach(w=>{ if(w.company===company) seen.add(d); });
+      });
+    });
+  });
+  sel.innerHTML = `<option value="all">Усі</option>` + [...seen].map(d=>
+    `<option value="${d}" ${d===cur?"selected":""}>${DIR_LABEL[d]||d}</option>`).join("");
+  drawWinHourly();
+  panel.scrollIntoView({behavior:"smooth", block:"nearest"});
+}
+
+function drawWinHourly(){
+  if(!_winCompany) return;
+  const side=(document.getElementById("winHourlySide")||{}).value||"all";
+  const dirF=(document.getElementById("winHourlyDir")||{}).value||"all";
+  const {hours, d1, d2} = companyHourlySeries(_winCompany, side, dirF);
+  const m=DATA.meta;
+  destroy("winHourly");
+  charts.winHourly=new Chart(document.getElementById("chartWinHourly"),{
+    type:"line",
+    data:{
+      labels: hours.map(h=>String(h).padStart(2,"0")),
+      datasets:[
+        {label:m.d2||"день", data:d2, borderColor:"#60a5fa", backgroundColor:"rgba(96,165,250,.12)",
+          fill:true, tension:.3, borderWidth:2, pointRadius:2, spanGaps:true,
+          datalabels:{display:false}},
+        {label:m.d1||"д−1", data:d1, borderColor:"#94a3b8", borderDash:[5,4],
+          tension:.3, borderWidth:1.5, pointRadius:0, spanGaps:true,
+          datalabels:{display:false}},
+      ]
+    },
+    options:{responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{labels:{boxWidth:12,font:{size:11}}}, datalabels:{display:false},
+        tooltip:{backgroundColor:"#141c2e", titleColor:"#e8eef8", bodyColor:"#cbd5e1"}},
+      scales:{
+        x:{ticks:{color:"#8b9bb4"}, grid:{color:"#1a2336"}},
+        y:{title:{display:true,text:"МВт",color:"#8b9bb4"}, ticks:{color:"#8b9bb4"}, grid:{color:"#1a2336"}}
+      }}
+  });
+}
+
+function monthKey(date){ return date.slice(0,7); }
+function monthLabel(ym){
+  const [y,m]=ym.split("-");
+  const names=["січ","лют","бер","кві","тра","чер","лип","сер","вер","жов","лис","гру"];
+  return (names[parseInt(m,10)-1]||m)+" "+y;
+}
+
+function aggregateMonth(ym, metric){
+  const rows=(DATA.day_totals||[]).filter(r=>monthKey(r.date)===ym);
+  const dirs=DATA.meta.directions||[];
+  const dirSum={}, dirAvg={}, dirCovSum={}, dirCovN={};
+  let imp=0, exp=0, oc=0, rps=0, n=rows.length;
+  dirs.forEach(d=>{ dirSum[d]=0; dirAvg[d]=0; dirCovSum[d]=0; dirCovN[d]=0; });
+  rows.forEach(row=>{
+    if(metric==="rps"){
+      imp += row.imp_rps||0; exp += row.exp_rps||0; rps += row.rps||0; oc += row.oc||0;
+    } else {
+      imp += row.imp_oc||0; exp += row.exp_oc||0; oc += row.oc||0; rps += row.rps||0;
+    }
+    dirs.forEach(d=>{
+      const cell=row.directions?.[d];
+      if(!cell) return;
+      const v = metric==="rps" ? (cell.rps||0) : (cell.oc||0);
+      dirSum[d]+=v;
+      if(cell.coverage!=null){ dirCovSum[d]+=cell.coverage; dirCovN[d]++; }
+    });
+  });
+  dirs.forEach(d=>{ dirAvg[d] = n ? Math.round(dirSum[d]/n*10)/10 : 0; });
+  const covAvg={};
+  dirs.forEach(d=>{ covAvg[d] = dirCovN[d] ? Math.round(dirCovSum[d]/dirCovN[d]*10)/10 : null; });
+  return {
+    ym, n, rows,
+    impSum: Math.round(imp*10)/10,
+    expSum: Math.round(exp*10)/10,
+    ocSum: Math.round(oc*10)/10,
+    rpsSum: Math.round(rps*10)/10,
+    impAvg: n?Math.round(imp/n*10)/10:0,
+    expAvg: n?Math.round(exp/n*10)/10:0,
+    dirSum, dirAvg, covAvg
+  };
+}
+
+function renderMonths(){
+  const dt=DATA.day_totals||[];
+  const months=[...new Set(dt.map(r=>monthKey(r.date)))].sort();
+  const selA=document.getElementById("monthA");
+  const selB=document.getElementById("monthB");
+  if(!selA||!selB) return;
+  const prevA=selA.value, prevB=selB.value;
+  selA.innerHTML=months.map(m=>`<option value="${m}">${monthLabel(m)}</option>`).join("");
+  selB.innerHTML=months.map(m=>`<option value="${m}">${monthLabel(m)}</option>`).join("");
+  if(months.length>=2){
+    selA.value = months.includes(prevA)?prevA:months[months.length-2];
+    selB.value = months.includes(prevB)?prevB:months[months.length-1];
+  } else if(months.length===1){
+    selA.value=selB.value=months[0];
+  }
+  const metric=(document.getElementById("monthMetric")||{}).value||"oc";
+  const a=aggregateMonth(selA.value, metric);
+  const b=aggregateMonth(selB.value, metric);
+  const hint=document.getElementById("monthHint");
+  if(hint) hint.textContent = `${a.n} дн. vs ${b.n} дн. · метрика ${metric.toUpperCase()} · з day_totals`;
+
+  const pct=(x,y)=> y ? Math.round((x-y)/Math.abs(y)*1000)/10 : null;
+  const kpis=document.getElementById("monthKpis");
+  if(kpis){
+    const cells=[
+      ["Імпорт Σ", b.impSum, a.impSum, "#60a5fa"],
+      ["Експорт Σ", b.expSum, a.expSum, "#4ade80"],
+      ["Імпорт сер/день", b.impAvg, a.impAvg, "#93c5fd"],
+      ["Експорт сер/день", b.expAvg, a.expAvg, "#86efac"],
+      ["ОС Σ", b.ocSum, a.ocSum, "#e8eef8"],
+      ["РПС Σ", b.rpsSum, a.rpsSum, "#c4b5fd"],
+    ];
+    kpis.innerHTML=cells.map(([lab,v2,v1,col])=>{
+      const d=v2-v1;
+      const p=pct(v2,v1);
+      return `<div class="card" style="padding:12px 14px">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em">${lab}</div>
+        <div style="font-size:18px;font-weight:800;color:${col};margin:4px 0">${fmt(v2)}</div>
+        <div style="font-size:11px;color:var(--muted)">А: ${fmt(v1)}</div>
+        <div style="margin-top:4px">${deltaHtml(d,p)}</div>
+      </div>`;
+    }).join("");
+  }
+
+  // Flow chart
+  destroy("monthFlow");
+  charts.monthFlow=new Chart(document.getElementById("chartMonthFlow"),{
+    type:"bar",
+    data:{
+      labels:["Імпорт Σ","Експорт Σ","Імп сер/д","Експ сер/д"],
+      datasets:[
+        {label:monthLabel(a.ym), data:[a.impSum,a.expSum,a.impAvg,a.expAvg],
+          backgroundColor:"rgba(148,163,184,.45)", borderRadius:4, datalabels:{display:true,anchor:"end",align:"top",formatter:v=>fmt(v),font:{size:9},color:"#94a3b8"}},
+        {label:monthLabel(b.ym), data:[b.impSum,b.expSum,b.impAvg,b.expAvg],
+          backgroundColor:"rgba(96,165,250,.55)", borderRadius:4, datalabels:{display:true,anchor:"end",align:"top",formatter:v=>fmt(v),font:{size:9},color:"#93c5fd"}},
+      ]
+    },
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{labels:{boxWidth:12,font:{size:11}}},datalabels:{display:true}},
+      scales:{y:{title:{display:true,text:"МВт",color:"#8b9bb4"},grid:{color:"#1a2336"},ticks:{color:"#8b9bb4"}},
+        x:{grid:{display:false},ticks:{color:"#8b9bb4"}}}}
+  });
+
+  // Directions chart
+  const dirs=DATA.meta.directions||[];
+  destroy("monthDirs");
+  charts.monthDirs=new Chart(document.getElementById("chartMonthDirs"),{
+    type:"bar",
+    data:{
+      labels:dirs.map(d=>DIR_LABEL[d]||d),
+      datasets:[
+        {label:monthLabel(a.ym)+" сер/д", data:dirs.map(d=>a.dirAvg[d]||0),
+          backgroundColor:dirs.map(d=>isImportDir(d)?"rgba(59,130,246,.35)":"rgba(34,197,94,.35)"), borderRadius:3, datalabels:{display:false}},
+        {label:monthLabel(b.ym)+" сер/д", data:dirs.map(d=>b.dirAvg[d]||0),
+          backgroundColor:dirs.map(d=>isImportDir(d)?"rgba(59,130,246,.7)":"rgba(34,197,94,.7)"), borderRadius:3, datalabels:{display:false}},
+      ]
+    },
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{labels:{boxWidth:12,font:{size:11}}},datalabels:{display:false},
+        tooltip:{callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.raw)}`}}},
+      scales:{y:{title:{display:true,text:"МВт / день",color:"#8b9bb4"},grid:{color:"#1a2336"},ticks:{color:"#8b9bb4"}},
+        x:{grid:{display:false},ticks:{color:"#8b9bb4",maxRotation:45}}}}
+  });
+
+  // Direction table
+  let th=`<table class="cmp"><thead><tr>
+    <th>Напрямок</th><th>Тип</th>
+    <th style="text-align:right">${monthLabel(a.ym)} сер</th>
+    <th style="text-align:right">${monthLabel(b.ym)} сер</th>
+    <th style="text-align:center">Δ</th>
+    <th style="text-align:right">${monthLabel(a.ym)} Σ</th>
+    <th style="text-align:right">${monthLabel(b.ym)} Σ</th>
+    <th style="text-align:center">Покр. А</th>
+    <th style="text-align:center">Покр. Б</th>
+  </tr></thead><tbody>`;
+  dirs.forEach(d=>{
+    const side=isImportDir(d)?'<span style="color:#60a5fa">ІМПОРТ</span>':'<span style="color:#4ade80">ЕКСПОРТ</span>';
+    const va=a.dirAvg[d]||0, vb=b.dirAvg[d]||0;
+    const sa=a.dirSum[d]||0, sb=b.dirSum[d]||0;
+    const dlt=Math.round((vb-va)*10)/10;
+    th+=`<tr>
+      <td style="font-weight:600;color:${DIR_COLOR[d]||"#e8eef8"}">${DIR_LABEL[d]||d}</td>
+      <td>${side}</td>
+      <td class="num" style="text-align:right">${fmt(va)}</td>
+      <td class="num" style="text-align:right">${fmt(vb)}</td>
+      <td style="text-align:center">${deltaHtml(dlt, pct(vb,va))}</td>
+      <td class="num" style="text-align:right">${fmt(sa)}</td>
+      <td class="num" style="text-align:right">${fmt(sb)}</td>
+      <td style="text-align:center"><span class="heat" style="background:${covBg(a.covAvg[d])}">${a.covAvg[d]!=null?fmt(a.covAvg[d],0)+"%":"—"}</span></td>
+      <td style="text-align:center"><span class="heat" style="background:${covBg(b.covAvg[d])}">${b.covAvg[d]!=null?fmt(b.covAvg[d],0)+"%":"—"}</span></td>
+    </tr>`;
+  });
+  th+=`</tbody></table>`;
+  document.getElementById("monthDirTable").innerHTML=th;
+
+  // Coverage chart
+  destroy("monthCov");
+  charts.monthCov=new Chart(document.getElementById("chartMonthCov"),{
+    type:"bar",
+    data:{
+      labels:dirs.map(d=>DIR_LABEL[d]||d),
+      datasets:[
+        {label:monthLabel(a.ym), data:dirs.map(d=>a.covAvg[d]), backgroundColor:"rgba(148,163,184,.45)", borderRadius:3, datalabels:{display:false}},
+        {label:monthLabel(b.ym), data:dirs.map(d=>b.covAvg[d]), backgroundColor:"rgba(234,179,8,.55)", borderRadius:3, datalabels:{display:false}},
+      ]
+    },
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{labels:{boxWidth:12,font:{size:11}}},datalabels:{display:false}},
+      scales:{y:{min:0,max:100,title:{display:true,text:"%",color:"#8b9bb4"},grid:{color:"#1a2336"},ticks:{color:"#8b9bb4"}},
+        x:{grid:{display:false},ticks:{color:"#8b9bb4",maxRotation:45}}}}
+  });
+}
+
 async function boot(d1, d2, refresh){
   const st = document.getElementById("liveStatus");
   try {
@@ -930,11 +1250,12 @@ async function boot(d1, d2, refresh){
     }
 
     // destroy old charts before re-render
-    ["stack","flow","hourly","delta"].forEach(k => { try { destroy(k); } catch(e){} });
+    ["stack","flow","hourly","delta","winHourly","monthFlow","monthDirs","monthCov"].forEach(k => { try { destroy(k); } catch(e){} });
     renderOverview();
     renderHourly();
     renderDaily();
     renderWinners();
+    renderMonths();
   } catch(e) {
     if (st) st.textContent = "Помилка: " + e;
     console.error(e);
@@ -953,6 +1274,18 @@ function wireDatePickers(){
   if(ws) ws.onchange=()=>renderWinners();
   const wd=document.getElementById("winDir");
   if(wd) wd.onchange=()=>renderWinners();
+  const whClose=document.getElementById("winHourlyClose");
+  if(whClose) whClose.onclick=()=>{ document.getElementById("winHourlyPanel").style.display="none"; _winCompany=null; };
+  const whDir=document.getElementById("winHourlyDir");
+  if(whDir) whDir.onchange=()=>drawWinHourly();
+  const whSide=document.getElementById("winHourlySide");
+  if(whSide) whSide.onchange=()=>drawWinHourly();
+  const mA=document.getElementById("monthA");
+  const mB=document.getElementById("monthB");
+  const mM=document.getElementById("monthMetric");
+  if(mA) mA.onchange=()=>renderMonths();
+  if(mB) mB.onchange=()=>renderMonths();
+  if(mM) mM.onchange=()=>renderMonths();
 
   const selA = document.getElementById("dateA");
   const selB = document.getElementById("dateB");
