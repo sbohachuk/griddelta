@@ -40,6 +40,33 @@ function read(cell: CellQuote | undefined, metric: Metric): number | null {
   return cell[metric];
 }
 
+function isMissingZone(metric: Metric, z: (typeof ZONES)[number]): boolean {
+  return (
+    (metric.includes("day") &&
+      metric !== "dayDeltaEur" &&
+      metric !== "dayDeltaPct" &&
+      !z.dayPrefix) ||
+    (metric.includes("week") && !metric.includes("weekend") && !z.weekCode) ||
+    (metric.includes("weekend") && !z.weekendCode)
+  );
+}
+
+function rowAvg(
+  report: MarketReport,
+  date: string,
+  metric: Metric,
+  zones: typeof ZONES,
+): number | null {
+  const vals: number[] = [];
+  for (const z of zones) {
+    if (isMissingZone(metric, z)) continue;
+    const v = read(report.rows[date]?.[z.id], metric);
+    if (v != null && Number.isFinite(v)) vals.push(v);
+  }
+  if (!vals.length) return null;
+  return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100;
+}
+
 export function PriceTable({
   report,
   metric,
@@ -74,10 +101,18 @@ export function PriceTable({
                   {z.id}
                 </th>
               ))}
+              <th
+                className="px-2 py-2.5 text-right text-[11px] font-medium uppercase tracking-[0.12em] bg-background/20"
+                title="Середнє по всіх зонах"
+              >
+                Сер.
+              </th>
             </tr>
           </thead>
           <tbody>
-            {report.dates.map((date, i) => (
+            {report.dates.map((date, i) => {
+              const avg = rowAvg(report, date, metric, zones);
+              return (
               <tr
                 key={date}
                 className={cn(
@@ -90,15 +125,7 @@ export function PriceTable({
                 </td>
                 {zones.map((z) => {
                   const value = read(report.rows[date]?.[z.id], metric);
-                  const missing =
-                    (metric.includes("day") &&
-                      metric !== "dayDeltaEur" &&
-                      metric !== "dayDeltaPct" &&
-                      !z.dayPrefix) ||
-                    (metric.includes("week") &&
-                      !metric.includes("weekend") &&
-                      !z.weekCode) ||
-                    (metric.includes("weekend") && !z.weekendCode);
+                  const missing = isMissingZone(metric, z);
                   return (
                     <td
                       key={z.id}
@@ -113,8 +140,18 @@ export function PriceTable({
                     </td>
                   );
                 })}
+                <td
+                  className={cn(
+                    "px-2 py-2 text-right tabular-nums font-medium bg-foreground/5",
+                    meta.isDelta && avg !== null && avg > 0 && "text-gain",
+                    meta.isDelta && avg !== null && avg < 0 && "text-loss",
+                  )}
+                >
+                  {meta.isPct ? formatPct(avg) : formatPrice(avg)}
+                </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -162,6 +199,107 @@ export function EuUaTable({ report }: { report: MarketReport }) {
                 </td>
               </tr>
             ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/** Середнє Week + Weekend по зонах (подобово) */
+export function WeekWeekendAvgTable({
+  report,
+  highlight,
+}: {
+  report: MarketReport;
+  highlight?: ZoneId;
+}) {
+  const zones = ZONES.filter((z) => report.zones.includes(z.id));
+
+  function cellAvg(date: string, zoneId: ZoneId): number | null {
+    const c = report.rows[date]?.[zoneId];
+    if (!c) return null;
+    const vals = [c.weekFutures, c.weekendFutures].filter(
+      (v): v is number => v != null && Number.isFinite(v),
+    );
+    if (!vals.length) return null;
+    return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100;
+  }
+
+  function rowAvg(date: string): number | null {
+    const vals: number[] = [];
+    for (const z of zones) {
+      const v = cellAvg(date, z.id);
+      if (v != null) vals.push(v);
+    }
+    if (!vals.length) return null;
+    return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100;
+  }
+
+  return (
+    <div className="overflow-hidden rounded-[calc(var(--radius-xl)-4px)] border border-border">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[720px] border-collapse text-sm">
+          <caption className="sr-only">Середнє Week + Weekend</caption>
+          <thead>
+            <tr className="bg-foreground text-background">
+              <th className="sticky left-0 z-10 bg-foreground px-3 py-2.5 text-left text-[11px] font-medium uppercase tracking-[0.12em]">
+                Дата
+              </th>
+              {zones.map((z) => (
+                <th
+                  key={z.id}
+                  className={cn(
+                    "px-2 py-2.5 text-right text-[11px] font-medium uppercase tracking-[0.12em]",
+                    highlight === z.id && "bg-background/15",
+                  )}
+                  title={z.name}
+                >
+                  {z.id}
+                </th>
+              ))}
+              <th
+                className="px-2 py-2.5 text-right text-[11px] font-medium uppercase tracking-[0.12em] bg-background/20"
+                title="Середнє по всіх зонах"
+              >
+                Сер.
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {report.dates.map((date, i) => {
+              const avg = rowAvg(date);
+              return (
+                <tr
+                  key={date}
+                  className={cn(
+                    "border-t border-border",
+                    i % 2 === 0 ? "bg-card" : "bg-muted/40",
+                  )}
+                >
+                  <td className="sticky left-0 z-10 bg-inherit px-3 py-2 font-medium tabular-nums text-muted-foreground">
+                    {formatDateWithWeek(date)}
+                  </td>
+                  {zones.map((z) => {
+                    const value = cellAvg(date, z.id);
+                    return (
+                      <td
+                        key={z.id}
+                        className={cn(
+                          "px-2 py-2 text-right tabular-nums",
+                          highlight === z.id && "bg-foreground/4",
+                        )}
+                      >
+                        {formatPrice(value)}
+                      </td>
+                    );
+                  })}
+                  <td className="px-2 py-2 text-right tabular-nums font-medium bg-foreground/5">
+                    {formatPrice(avg)}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

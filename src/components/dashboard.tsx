@@ -25,6 +25,7 @@ import { DeltaChart, OverviewChart } from "@/components/delta-chart";
 import {
   PriceTable,
   EuUaTable,
+  WeekWeekendAvgTable,
   DecadeTable,
   ZoneMonthTable,
   ZoneDecadeTable,
@@ -395,6 +396,7 @@ export function Dashboard() {
                       <TabsTrigger value="dayFutures">Day</TabsTrigger>
                       <TabsTrigger value="weekFutures">Week</TabsTrigger>
                       <TabsTrigger value="weekendFutures">Weekend</TabsTrigger>
+                      <TabsTrigger value="weekWeAvg">Week+WE</TabsTrigger>
                       <TabsTrigger value="monthFutures">Month</TabsTrigger>
                       <TabsTrigger value="dayDeltaEur">Δ day €</TabsTrigger>
                       <TabsTrigger value="dayDeltaPct">Δ day %</TabsTrigger>
@@ -413,6 +415,9 @@ export function Dashboard() {
                   </TabsContent>
                   <TabsContent value="weekendFutures">
                     <PriceTable report={report} metric="weekendFutures" highlight={zone} />
+                  </TabsContent>
+                  <TabsContent value="weekWeAvg">
+                    <WeekWeekendAvgTable report={report} highlight={zone} />
                   </TabsContent>
                   <TabsContent value="monthFutures">
                     <PriceTable report={report} metric="monthFutures" highlight={zone} />
