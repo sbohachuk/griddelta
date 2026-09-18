@@ -311,7 +311,7 @@
   </div>
 
   <div class="card" style="padding:14px 16px;overflow-x:auto">
-    <h2 class="sec">ТАБЛИЦЯ ЗНАЧЕНЬ · ДЕНЬ ЗА ДНЕМ</h2>
+    <h2 class="sec" id="monthDayTableTitle">ТАБЛИЦЯ ЗНАЧЕНЬ · ДЕНЬ ЗА ДНЕМ</h2>
     <div id="monthDayTable"></div>
   </div>
 </section>
@@ -1386,41 +1386,121 @@ function renderMonths(){
   th+=`</tbody></table>`;
   document.getElementById("monthDirTable").innerHTML=th;
 
-  // Day-by-day values table (aligned by day-of-month)
+  // Values table: day-by-day or by decade
   const rowsA=sliceRows(a), rowsB=sliceRows(b);
-  const byDayA={}, byDayB={};
-  rowsA.forEach(r=>{ byDayA[r.date.slice(8)]=r; });
-  rowsB.forEach(r=>{ byDayB[r.date.slice(8)]=r; });
-  const days=[...new Set([...Object.keys(byDayA),...Object.keys(byDayB)])].sort();
+  const dayTitle=document.getElementById("monthDayTableTitle");
+  if(dayTitle) dayTitle.textContent = grain==="decade"
+    ? "ТАБЛИЦЯ ЗНАЧЕНЬ · ПО ДЕКАДАХ"
+    : "ТАБЛИЦЯ ЗНАЧЕНЬ · ДЕНЬ ЗА ДНЕМ";
+
+  function avgField(list, field){
+    const vals=list.map(r=>r[field]).filter(v=>v!=null && Number.isFinite(v));
+    if(!vals.length) return null;
+    return Math.round(vals.reduce((s,x)=>s+x,0)/vals.length*10)/10;
+  }
+  function sumField(list, field){
+    return Math.round(list.reduce((s,r)=>s+(r[field]||0),0)*10)/10;
+  }
+  function decadeBuckets(rows){
+    const buckets=[
+      {lab:"1–10", rows:[]},
+      {lab:"11–20", rows:[]},
+      {lab:"21–кін", rows:[]},
+    ];
+    rows.forEach(r=>{
+      const day=parseInt(String(r.date).slice(8,10),10);
+      const bi=day<=10?0:day<=20?1:2;
+      buckets[bi].rows.push(r);
+    });
+    return buckets;
+  }
+
   let dtHtml=`<table class="cmp"><thead><tr>
-    <th>День</th>
+    <th>${grain==="decade"?"Декада":"День"}</th>
     <th style="text-align:right;color:#94a3b8">А Імп</th>
     <th style="text-align:right;color:#94a3b8">А Експ</th>
     <th style="text-align:right;color:#94a3b8">А ОС</th>
+    <th style="text-align:right;color:#94a3b8">А РПС</th>
     <th style="text-align:right;color:#60a5fa">Б Імп</th>
     <th style="text-align:right;color:#60a5fa">Б Експ</th>
     <th style="text-align:right;color:#60a5fa">Б ОС</th>
+    <th style="text-align:right;color:#60a5fa">Б РПС</th>
     <th style="text-align:center">Δ Імп</th>
     <th style="text-align:center">Δ Експ</th>
+    <th style="text-align:center">Δ ОС</th>
   </tr></thead><tbody>`;
-  days.forEach(dd=>{
-    const ra=byDayA[dd], rb=byDayB[dd];
-    const ai=ra?.imp_oc??null, ae=ra?.exp_oc??null, ao=ra?.oc??null;
-    const bi=rb?.imp_oc??null, be=rb?.exp_oc??null, bo=rb?.oc??null;
-    const di=(ai!=null&&bi!=null)?bi-ai:null;
-    const de=(ae!=null&&be!=null)?be-ae:null;
-    dtHtml+=`<tr>
-      <td style="font-family:ui-monospace;color:var(--muted)">${dd}</td>
-      <td class="num" style="text-align:right">${fmt(ai)}</td>
-      <td class="num" style="text-align:right">${fmt(ae)}</td>
-      <td class="num" style="text-align:right">${fmt(ao)}</td>
-      <td class="num" style="text-align:right">${fmt(bi)}</td>
-      <td class="num" style="text-align:right">${fmt(be)}</td>
-      <td class="num" style="text-align:right">${fmt(bo)}</td>
-      <td style="text-align:center">${deltaHtml(di,null)}</td>
-      <td style="text-align:center">${deltaHtml(de,null)}</td>
+
+  if(grain==="decade"){
+    const ba=decadeBuckets(rowsA), bb=decadeBuckets(rowsB);
+    [0,1,2].forEach(i=>{
+      const ra=ba[i].rows, rb=bb[i].rows;
+      // for decade show average per day in decade + also useful totals
+      const ai=avgField(ra,"imp_oc"), ae=avgField(ra,"exp_oc"), ao=avgField(ra,"oc"), ar=avgField(ra,"rps");
+      const bi=avgField(rb,"imp_oc"), be=avgField(rb,"exp_oc"), bo=avgField(rb,"oc"), br=avgField(rb,"rps");
+      const di=(ai!=null&&bi!=null)?Math.round((bi-ai)*10)/10:null;
+      const de=(ae!=null&&be!=null)?Math.round((be-ae)*10)/10:null;
+      const doc=(ao!=null&&bo!=null)?Math.round((bo-ao)*10)/10:null;
+      const nA=ra.length, nB=rb.length;
+      dtHtml+=`<tr>
+        <td style="font-weight:600">${ba[i].lab} <span style="font-size:10px;color:var(--muted);font-weight:400">А:${nA}д Б:${nB}д</span></td>
+        <td class="num" style="text-align:right">${fmt(ai)}</td>
+        <td class="num" style="text-align:right">${fmt(ae)}</td>
+        <td class="num" style="text-align:right">${fmt(ao)}</td>
+        <td class="num" style="text-align:right">${fmt(ar)}</td>
+        <td class="num" style="text-align:right">${fmt(bi)}</td>
+        <td class="num" style="text-align:right">${fmt(be)}</td>
+        <td class="num" style="text-align:right">${fmt(bo)}</td>
+        <td class="num" style="text-align:right">${fmt(br)}</td>
+        <td style="text-align:center">${deltaHtml(di,null)}</td>
+        <td style="text-align:center">${deltaHtml(de,null)}</td>
+        <td style="text-align:center">${deltaHtml(doc,null)}</td>
+      </tr>`;
+    });
+    // totals row (sums)
+    const sai=sumField(rowsA,"imp_oc"), sae=sumField(rowsA,"exp_oc"), sao=sumField(rowsA,"oc"), sar=sumField(rowsA,"rps");
+    const sbi=sumField(rowsB,"imp_oc"), sbe=sumField(rowsB,"exp_oc"), sbo=sumField(rowsB,"oc"), sbr=sumField(rowsB,"rps");
+    dtHtml+=`<tr style="background:rgba(255,255,255,.04);font-weight:700">
+      <td>Σ місяць</td>
+      <td class="num" style="text-align:right">${fmt(sai)}</td>
+      <td class="num" style="text-align:right">${fmt(sae)}</td>
+      <td class="num" style="text-align:right">${fmt(sao)}</td>
+      <td class="num" style="text-align:right">${fmt(sar)}</td>
+      <td class="num" style="text-align:right">${fmt(sbi)}</td>
+      <td class="num" style="text-align:right">${fmt(sbe)}</td>
+      <td class="num" style="text-align:right">${fmt(sbo)}</td>
+      <td class="num" style="text-align:right">${fmt(sbr)}</td>
+      <td style="text-align:center">${deltaHtml(sbi-sai,null)}</td>
+      <td style="text-align:center">${deltaHtml(sbe-sae,null)}</td>
+      <td style="text-align:center">${deltaHtml(sbo-sao,null)}</td>
     </tr>`;
-  });
+  } else {
+    const byDayA={}, byDayB={};
+    rowsA.forEach(r=>{ byDayA[r.date.slice(8)]=r; });
+    rowsB.forEach(r=>{ byDayB[r.date.slice(8)]=r; });
+    const days=[...new Set([...Object.keys(byDayA),...Object.keys(byDayB)])].sort();
+    days.forEach(dd=>{
+      const ra=byDayA[dd], rb=byDayB[dd];
+      const ai=ra?.imp_oc??null, ae=ra?.exp_oc??null, ao=ra?.oc??null, ar=ra?.rps??null;
+      const bi=rb?.imp_oc??null, be=rb?.exp_oc??null, bo=rb?.oc??null, br=rb?.rps??null;
+      const di=(ai!=null&&bi!=null)?bi-ai:null;
+      const de=(ae!=null&&be!=null)?be-ae:null;
+      const doc=(ao!=null&&bo!=null)?bo-ao:null;
+      dtHtml+=`<tr>
+        <td style="font-family:ui-monospace;color:var(--muted)">${dd}</td>
+        <td class="num" style="text-align:right">${fmt(ai)}</td>
+        <td class="num" style="text-align:right">${fmt(ae)}</td>
+        <td class="num" style="text-align:right">${fmt(ao)}</td>
+        <td class="num" style="text-align:right">${fmt(ar)}</td>
+        <td class="num" style="text-align:right">${fmt(bi)}</td>
+        <td class="num" style="text-align:right">${fmt(be)}</td>
+        <td class="num" style="text-align:right">${fmt(bo)}</td>
+        <td class="num" style="text-align:right">${fmt(br)}</td>
+        <td style="text-align:center">${deltaHtml(di,null)}</td>
+        <td style="text-align:center">${deltaHtml(de,null)}</td>
+        <td style="text-align:center">${deltaHtml(doc,null)}</td>
+      </tr>`;
+    });
+  }
   dtHtml+=`</tbody></table>`;
   document.getElementById("monthDayTable").innerHTML=dtHtml;
 }
