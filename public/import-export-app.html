@@ -158,12 +158,12 @@
   </div>
 
   <div class="card" style="padding:14px 16px;margin-bottom:14px;overflow-x:auto">
-    <h2 class="sec">ПОГОДИННЕ Σ УСІ НАПРЯМКИ · ОС / РПС / Δ [МВт]</h2>
+    <h2 class="sec">ПОГОДИННЕ Σ · ІМПОРТ / ЕКСПОРТ / РАЗОМ · ОС / РПС / Δ [МВт]</h2>
     <div id="hDeltaTable"></div>
   </div>
 
   <div class="card" style="padding:14px 16px;overflow-x:auto">
-    <h2 class="sec">Δ ПО НАПРЯМКАХ · ПО ГОДИНАХ (день − д−1)</h2>
+    <h2 class="sec">Δ ПО НАПРЯМКАХ · ПО ГОДИНАХ (день − д−1) · Σ Імп / Σ Експ</h2>
     <div id="hDirDeltaTable"></div>
   </div>
 </section>
@@ -528,59 +528,103 @@ function renderHourly(){
         }}
     });
 
-    // Aggregate table all directions
-    const sumH=(src,key)=>hours.map(h=>{
+    // Aggregate table: Імпорт / Експорт / Разом · ОС / РПС / Δ
+    const impDirs = dirs.filter(d=>isImportDir(d));
+    const expDirs = dirs.filter(d=>!isImportDir(d));
+    const sumHSide=(src,key,sideList)=>hours.map(h=>{
       let s=0,ok=false;
-      active.forEach(d=>{(src[d]||[]).forEach(r=>{if(r.hour===h&&r[key]!=null){s+=r[key];ok=true}})});
+      sideList.forEach(d=>{(src[d]||[]).forEach(r=>{if(r.hour===h&&r[key]!=null){s+=r[key];ok=true}})});
       return ok?s:null;
     });
-    const oc1=sumH(h1,"oc"), oc2=sumH(h2,"oc"), rps1=sumH(h1,"rps"), rps2=sumH(h2,"rps");
-    let t=`<table class="cmp"><thead><tr>
-      <th>Год</th>
-      <th style="text-align:right">ОС д−1</th><th style="text-align:right">ОС день</th><th style="text-align:center">Δ ОС</th>
-      <th style="text-align:right">РПС д−1</th><th style="text-align:right">РПС день</th><th style="text-align:center">Δ РПС</th>
-    </tr></thead><tbody>`;
-    hours.forEach((h,i)=>{
-      const doc=oc2[i]!=null&&oc1[i]!=null?oc2[i]-oc1[i]:null;
-      const dr=rps2[i]!=null&&rps1[i]!=null?rps2[i]-rps1[i]:null;
-      t+=`<tr>
-        <td style="font-family:ui-monospace;color:var(--muted)">${String(h).padStart(2,"0")}</td>
-        <td class="num" style="text-align:right">${fmt(oc1[i])}</td>
-        <td class="num" style="text-align:right">${fmt(oc2[i])}</td>
-        <td style="text-align:center">${deltaHtml(doc,oc1[i]?Math.round(doc/oc1[i]*1000)/10:null)}</td>
-        <td class="num" style="text-align:right">${fmt(rps1[i])}</td>
-        <td class="num" style="text-align:right">${fmt(rps2[i])}</td>
-        <td style="text-align:center">${deltaHtml(dr,rps1[i]?Math.round(dr/rps1[i]*1000)/10:null)}</td>
-      </tr>`;
+    // Respect active filter when side is all, otherwise use full imp/exp groups for clear split
+    const useImp = hSide==="export" ? [] : (hSide==="import" ? active : impDirs.filter(d=>vis["h"+d]!==false));
+    const useExp = hSide==="import" ? [] : (hSide==="export" ? active : expDirs.filter(d=>vis["h"+d]!==false));
+    const useAll = active;
+
+    const blocks = [];
+    if(hSide!=="export") blocks.push({key:"imp", label:"ІМПОРТ", color:"#60a5fa", list:useImp.length?useImp:impDirs});
+    if(hSide!=="import") blocks.push({key:"exp", label:"ЕКСПОРТ", color:"#4ade80", list:useExp.length?useExp:expDirs});
+    if(hSide==="all") blocks.push({key:"all", label:"РАЗОМ", color:"#e8eef8", list:useAll});
+
+    const seriesSide = {};
+    blocks.forEach(b=>{
+      seriesSide[b.key] = {
+        oc1: sumHSide(h1,"oc",b.list),
+        oc2: sumHSide(h2,"oc",b.list),
+        rps1: sumHSide(h1,"rps",b.list),
+        rps2: sumHSide(h2,"rps",b.list),
+      };
     });
+
+    let t=`<table class="cmp"><thead><tr><th rowspan="2">Год</th>`;
+    blocks.forEach(b=>{
+      t+=`<th colspan="6" style="text-align:center;color:${b.color};border-bottom:1px solid var(--border)">${b.label}</th>`;
+    });
+    t+=`</tr><tr>`;
+    blocks.forEach(()=>{
+      t+=`<th style="text-align:right">ОС−1</th><th style="text-align:right">ОС</th><th style="text-align:center">Δ ОС</th>
+          <th style="text-align:right">РПС−1</th><th style="text-align:right">РПС</th><th style="text-align:center">Δ РПС</th>`;
+    });
+    t+=`</tr></thead><tbody>`;
+
     const S=a=>a.reduce((x,y)=>x+(y||0),0);
-    t+=`<tr style="background:rgba(255,255,255,.04);font-weight:700">
-      <td>Σ</td>
-      <td class="num" style="text-align:right">${fmt(S(oc1))}</td>
-      <td class="num" style="text-align:right">${fmt(S(oc2))}</td>
-      <td style="text-align:center">${deltaHtml(S(oc2)-S(oc1),S(oc1)?Math.round((S(oc2)-S(oc1))/S(oc1)*1000)/10:null)}</td>
-      <td class="num" style="text-align:right">${fmt(S(rps1))}</td>
-      <td class="num" style="text-align:right">${fmt(S(rps2))}</td>
-      <td style="text-align:center">${deltaHtml(S(rps2)-S(rps1),S(rps1)?Math.round((S(rps2)-S(rps1))/S(rps1)*1000)/10:null)}</td>
-    </tr></tbody></table>`;
+    hours.forEach((h,i)=>{
+      t+=`<tr><td style="font-family:ui-monospace;color:var(--muted)">${String(h).padStart(2,"0")}</td>`;
+      blocks.forEach(b=>{
+        const s=seriesSide[b.key];
+        const doc=s.oc2[i]!=null&&s.oc1[i]!=null?s.oc2[i]-s.oc1[i]:null;
+        const dr=s.rps2[i]!=null&&s.rps1[i]!=null?s.rps2[i]-s.rps1[i]:null;
+        t+=`<td class="num" style="text-align:right">${fmt(s.oc1[i])}</td>
+          <td class="num" style="text-align:right">${fmt(s.oc2[i])}</td>
+          <td style="text-align:center">${deltaHtml(doc,s.oc1[i]?Math.round(doc/s.oc1[i]*1000)/10:null)}</td>
+          <td class="num" style="text-align:right">${fmt(s.rps1[i])}</td>
+          <td class="num" style="text-align:right">${fmt(s.rps2[i])}</td>
+          <td style="text-align:center">${deltaHtml(dr,s.rps1[i]?Math.round(dr/s.rps1[i]*1000)/10:null)}</td>`;
+      });
+      t+=`</tr>`;
+    });
+    t+=`<tr style="background:rgba(255,255,255,.04);font-weight:700"><td>Σ</td>`;
+    blocks.forEach(b=>{
+      const s=seriesSide[b.key];
+      t+=`<td class="num" style="text-align:right">${fmt(S(s.oc1))}</td>
+        <td class="num" style="text-align:right">${fmt(S(s.oc2))}</td>
+        <td style="text-align:center">${deltaHtml(S(s.oc2)-S(s.oc1),S(s.oc1)?Math.round((S(s.oc2)-S(s.oc1))/S(s.oc1)*1000)/10:null)}</td>
+        <td class="num" style="text-align:right">${fmt(S(s.rps1))}</td>
+        <td class="num" style="text-align:right">${fmt(S(s.rps2))}</td>
+        <td style="text-align:center">${deltaHtml(S(s.rps2)-S(s.rps1),S(s.rps1)?Math.round((S(s.rps2)-S(s.rps1))/S(s.rps1)*1000)/10:null)}</td>`;
+    });
+    t+=`</tr></tbody></table>`;
     document.getElementById("hDeltaTable").innerHTML=t;
 
-    // Per-direction delta heatmap-like table for selected metric
+    // Per-direction delta + Σ Імп / Σ Експ / Σ
     let td=`<table class="cmp"><thead><tr><th>Год</th>`;
     active.forEach(d=>td+=`<th style="text-align:center;color:${DIR_COLOR[d]}">${DIR_LABEL[d]}</th>`);
-    td+=`<th style="text-align:right">Σ Δ</th></tr></thead><tbody>`;
+    td+=`<th style="text-align:right;color:#60a5fa">Σ Імп</th>
+         <th style="text-align:right;color:#4ade80">Σ Експ</th>
+         <th style="text-align:right">Σ Δ</th></tr></thead><tbody>`;
     hours.forEach(h=>{
-      let sum=0;
+      let sum=0, sumImp=0, sumExp=0, hasImp=false, hasExp=false;
       td+=`<tr><td style="font-family:ui-monospace;color:var(--muted)">${String(h).padStart(2,"0")}</td>`;
       active.forEach(d=>{
         const a=(h1[d]||[]).find(r=>r.hour===h);
         const b=(h2[d]||[]).find(r=>r.hour===h);
         const v1=a?a[metric]:null, v2=b?b[metric]:null;
         const dlt=(v1!=null&&v2!=null)?v2-v1:null;
-        if(dlt!=null)sum+=dlt;
+        if(dlt!=null){
+          sum+=dlt;
+          if(isImportDir(d)){ sumImp+=dlt; hasImp=true; }
+          else { sumExp+=dlt; hasExp=true; }
+        }
         const cls=dlt==null?"":(dlt>0?"color:#4ade80":dlt<0?"color:#f87171":"");
         td+=`<td style="text-align:center" class="num"><span style="${cls}">${dlt!=null?(dlt>0?"+":"")+fmt(dlt):"—"}</span></td>`;
       });
+      const fmtDlt=v=>{
+        if(v==null) return "—";
+        const sc=v>0?"color:#4ade80":v<0?"color:#f87171":"";
+        return `<span style="${sc}">${(v>0?"+":"")+fmt(v)}</span>`;
+      };
+      td+=`<td style="text-align:right" class="num">${hasImp?fmtDlt(sumImp):"—"}</td>`;
+      td+=`<td style="text-align:right" class="num">${hasExp?fmtDlt(sumExp):"—"}</td>`;
       const sc=sum>0?"color:#4ade80":sum<0?"color:#f87171":"";
       td+=`<td style="text-align:right" class="num"><span style="${sc}">${sum?(sum>0?"+":"")+fmt(sum):"—"}</span></td></tr>`;
     });
