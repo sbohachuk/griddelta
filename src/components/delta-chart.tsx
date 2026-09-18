@@ -806,6 +806,55 @@ export function OverviewChart({ report }: { report: MarketReport }) {
                   </tr>
                 );
               })}
+              {(() => {
+                // Місячне середнє по всіх параметрах EU / UA
+                const euUa = report.euUa ?? [];
+                const spots = euUa.map((x) => x.euAvg).filter((v): v is number => v != null);
+                const uaEur = euUa.map((x) => x.uaRdnEur).filter((v): v is number => v != null);
+                const uaUah = euUa.map((x) => x.uaRdnUah).filter((v): v is number => v != null);
+                const deltas = euUa.map((x) => x.deltaPct).filter((v): v is number => v != null);
+                const mean = (vals: number[]) =>
+                  vals.length
+                    ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100
+                    : null;
+                const euAvg = mean(spots);
+                const uaAvgEur = mean(uaEur);
+                const uaAvgUah = mean(uaUah);
+                const uaDelta = mean(deltas);
+                const disc = (pct: number) =>
+                  euAvg == null ? null : Math.round(euAvg * (1 - pct / 100) * 100) / 100;
+                const eu =
+                  currency === "EUR" ? euAvg : euAvg != null ? euAvg * rate : null;
+                const d30 =
+                  currency === "EUR" ? disc(30) : disc(30) != null ? disc(30)! * rate : null;
+                const d20 =
+                  currency === "EUR" ? disc(20) : disc(20) != null ? disc(20)! * rate : null;
+                const d10 =
+                  currency === "EUR" ? disc(10) : disc(10) != null ? disc(10)! * rate : null;
+                const uaPrice =
+                  currency === "EUR"
+                    ? uaAvgEur
+                    : uaAvgUah != null
+                      ? uaAvgUah
+                      : uaAvgEur != null
+                        ? uaAvgEur * rate
+                        : null;
+                const fmt = (v: number | null) =>
+                  v == null ? "—" : `${v.toFixed(1)} ${currency === "EUR" ? "€" : "₴"}`;
+                return (
+                  <tr key="month-avg" className="border-t-2 border-border bg-muted/40 font-medium">
+                    <td className="px-3 py-2">Місяць · середнє</td>
+                    <td className="px-3 py-2 tabular-nums">{fmt(eu)}</td>
+                    <td className="px-3 py-2 tabular-nums text-emerald-400/90">{fmt(d30)}</td>
+                    <td className="px-3 py-2 tabular-nums text-emerald-400/80">{fmt(d20)}</td>
+                    <td className="px-3 py-2 tabular-nums text-emerald-400/70">{fmt(d10)}</td>
+                    <td className="px-3 py-2 tabular-nums text-rose-300/90">{fmt(uaPrice)}</td>
+                    <td className="px-3 py-2 tabular-nums">
+                      {uaDelta == null ? "—" : `${uaDelta > 0 ? "+" : ""}${uaDelta.toFixed(1)}%`}
+                    </td>
+                  </tr>
+                );
+              })()}
             </tbody>
           </table>
         </div>
